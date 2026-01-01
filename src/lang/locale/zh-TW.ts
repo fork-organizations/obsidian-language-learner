@@ -158,5 +158,9 @@ export default {
     "As Server": "成為伺服器",
     "Self as Server": "開啟伺服器功能",
     "Make plugin a server and interact with chrome extension": "外掛開啟一個伺服器提供API，由此可以與Google瀏覽器外掛互動",
-    "when changing port, you should restart the server": "如果改變埠，請重啟伺服器"
+    "when changing port, you should restart the server": "如果改變埠，請重啟伺服器",
+
+    "Jot down Notes": "做笔记",
+    "Complete reading and proceed to the next page": "结束阅读并转入下一页",
+    "Complete reading": "结束阅读"
 }

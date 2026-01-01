@@ -15,14 +15,15 @@ import {
     WordCount,
     WordsPhrase,
     WordType
-} from "@/db/interface";
-import DbProvider from "../../base";
+} from "@/storage/interface";
 import WordDB from "./idb";
 import Plugin from "@/plugin";
 import Dexie from "dexie";
 import * as console from "console";
+import StorageDrive from "@/storage/drive";
+import { ExpressionsTable } from "../types";
 
-export class IndexedDB extends DbProvider {
+export class IndexedStorageDrive extends StorageDrive {
     idb: WordDB;
     plugin: Plugin;
 
@@ -54,7 +55,6 @@ export class IndexedDB extends DbProvider {
         ).map(expr => {
             return {text: expr.expression, status: expr.status} as Word;
         });
-
         let ac = await createAutomaton([...storedPhrases.keys()]);
         let searchedPhrases = (await ac.search(payload.article)).map(match => {
             return {text: match[1], status: storedPhrases.get(match[1]), offset: match[0]} as Phrase;
@@ -126,7 +126,7 @@ export class IndexedDB extends DbProvider {
             for (let item of sentences) {
                 res.push({
                     title: expr.expression,
-                    expression: item.text.replace(expr.expression, `==${expr.expression}==`),
+                    expression: item.sentence.replace(expr.expression, `==${expr.expression}==`),
                     meaning: item.trans,
                     status: expr.status,
                     t: WordType.PHRASE,
@@ -151,9 +151,8 @@ export class IndexedDB extends DbProvider {
     }
 
     async getAllExpressionSimple(ignores?: boolean): Promise<ExpressionInfoSimple[]> {
-        let exprs: ExpressionInfoSimple[];
-        let bottomStatus = ignores ? -1 : 0;
-        exprs = (await this.idb.expressions
+        const bottomStatus = ignores ? -1 : 0;
+        return (await this.idb.expressions
                 .where("status").above(bottomStatus)
                 .toArray()
         ).map((expr): ExpressionInfoSimple => {
@@ -168,9 +167,6 @@ export class IndexedDB extends DbProvider {
                 date: expr.date,
             };
         });
-        console.log(exprs, 111)
-
-        return exprs;
     }
 
     async postExpression(payload: ExpressionInfo): Promise<number> {
@@ -180,7 +176,7 @@ export class IndexedDB extends DbProvider {
 
         let sentences = new Set<number>();
         for (let sen of payload.sentences) {
-            let searched = await this.idb.sentences.where("text").equals(sen.text).first();
+            let searched = await this.idb.sentences.where("text").equals(sen.sentence).first();
             if (searched) {
                 await this.idb.sentences.update(searched._id as number, sen);
                 sentences.add(searched._id as number);
@@ -236,7 +232,7 @@ export class IndexedDB extends DbProvider {
                     tags: [],
                     connections: [],
                     date: moment().unix()
-                };
+                } as ExpressionsTable;
             })
         );
         return;
@@ -312,7 +308,7 @@ export class IndexedDB extends DbProvider {
     async exportDB() {
         let blob = await exportDB(this.idb);
         try {
-            download(blob, `${this.idb.dbName}.json`, "application/json");
+            download(blob, `${this.idb.storageName}.json`, "application/json");
         } catch (e) {
             console.error("error exporting database");
         }

@@ -7,14 +7,15 @@ export default class WordDB extends Dexie {
     sentences: Dexie.Table<SentencesTable, number>;
 
     plugin: Plugin;
-    dbName: string;
+    storageName: string;
+
     constructor(plugin: Plugin) {
-        super(plugin.settings.db_name);
+        super(plugin.settings.storage.storage_name);
         this.plugin = plugin;
-        this.dbName = plugin.settings.db_name;
+        this.storageName = plugin.settings.storage.storage_name;
         this.version(1).stores({
             expressions: "++_id, &expression, *status, t, date, *tags, nots, sentences, connections",
-            sentences: "++_id, &text",
+            sentences: "++_id, &text, &expression, &expression_id, date",
         });
     }
 }

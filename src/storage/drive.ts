@@ -1,10 +1,9 @@
 import {
-    ArticleWords, Word, Phrase, WordsPhrase, Sentence,
-    ExpressionInfo, ExpressionInfoSimple, CountInfo, WordCount, Span, ReviewWord
+    ArticleWords, WordsPhrase, Sentence,
+    ExpressionInfo, ExpressionInfoSimple, CountInfo, WordCount, ReviewWord
 } from "./interface";
 
-
-abstract class DbProvider {
+abstract class StorageDrive {
     abstract open(): Promise<void>;
     abstract close(): void;
     // 在文章中寻找之前记录过的单词和词组
@@ -40,4 +39,4 @@ abstract class DbProvider {
 }
 
 
-export default DbProvider;
+export default StorageDrive;

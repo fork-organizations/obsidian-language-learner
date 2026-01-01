@@ -180,4 +180,8 @@ export default {
     "Self as Server": "Self as Server",
     "Make plugin a server and interact with chrome extension": "Make plugin a server and interact with chrome extension",
     "when changing port, you should restart the server": "when changing port, you should restart the server",
+
+    "Jot down Notes": "Jot down Notes",
+    "Complete reading and proceed to the next page": "结束阅读并转入下一页",
+    "Complete reading": "Complete reading"
 };

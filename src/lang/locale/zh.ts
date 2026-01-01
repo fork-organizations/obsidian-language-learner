@@ -177,5 +177,9 @@ export default {
     "As Server": "成为服务器",
     "Self as Server": "开启服务器功能",
     "Make plugin a server and interact with chrome extension": "插件打开一个服务器提供api，由此可以与谷歌浏览器插件交互",
-    "when changing port, you should restart the server": "如果改变端口，请重启服务器"
+    "when changing port, you should restart the server": "如果改变端口，请重启服务器",
+
+    "Jot down Notes": "做笔记",
+    "Complete reading and proceed to the next page": "结束阅读并转入下一页",
+    "Complete reading": "结束阅读"
 };

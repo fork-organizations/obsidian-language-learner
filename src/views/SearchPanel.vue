@@ -13,7 +13,7 @@
             </div>
         </NConfigProvider>
         <div class="dict-area" style="overflow:auto;">
-            <DictItem v-for="(cp, i) in components" :loading="loadings[i]" :name="cp.name" :id="cp.id">
+            <DictItem v-for="(cp, i) in components" :loading="loadings[i]" :name="cp.name" :id="cp.id" :key="i">
                 <KeepAlive>
                     <Component @loading="loading" :is="cp.type" :word="word" v-show="shows[i]"></Component>
                 </KeepAlive>

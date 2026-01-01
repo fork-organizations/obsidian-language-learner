@@ -23,7 +23,7 @@
                     <option value="and">And</option>
                     <option value="or">Or</option>
                 </select>
-                <NTag v-for="(tag, i) in tags" size="small" checkable v-model:checked="checkedTags[i]">
+                <NTag v-for="(tag, i) in tags" size="small" checkable v-model:checked="checkedTags[i]" :key="i">
                     {{ "#" + tag }}
                 </NTag>
             </NSpace>
@@ -45,7 +45,7 @@ import {
     watchEffect,
     getCurrentInstance,
     Suspense,
-    defineAsyncComponent,
+    defineAsyncComponent, defineComponent,
 } from "vue";
 import {
     NConfigProvider,
@@ -127,8 +127,10 @@ const onAddWord = () => {
 
 const expressions = async () => {
     loading.value = true;
-    let rawData = await plugin.db.DB().getAllExpressionSimple(true);
+    let rawData = await plugin.storage.DB().getAllExpressionSimple(true);
     data.value = rawData.map((entry, i): Row => {
+        let date = moment(entry.date);
+
         return {
             expr: entry.expression,
             status: statusMap[entry.status],
@@ -136,10 +138,10 @@ const expressions = async () => {
             tags: entry.tags,
             noteNum: entry.note_num,
             senNum: entry.sen_num,
-            date: moment.unix(entry.date).format("YYYY-MM-DD"),
+            date: date.format("YYYY-MM-DD"),
         };
     });
-    tags.value = await plugin.db.DB().getTags();
+    tags.value = await plugin.storage.DB().getTags();
     checkedTags.value = Array(tags.value.length).map((_) => false);
     loading.value = false;
 }
@@ -185,8 +187,8 @@ let collumns = reactive<DataTableColumns<Row>>([
         type: "expand",
         expandable: (row: Row) => row.noteNum + row.senNum > 0,
         renderExpand: (row: Row) => {
-            return h(Suspense, [
-                h(WordMore, {word: row.expr})
+            return h(Suspense, {key: row.expr},[
+                h(WordMore, {word: row.expr, key: row.expr})
             ]);
         },
     },
@@ -279,7 +281,7 @@ let collumns = reactive<DataTableColumns<Row>>([
                         strong: true,
                         secondary: true,
                         onClick: async () => {
-                            word.value = await plugin.db.DB()?.getExpression(row.expr)
+                            word.value = await plugin.storage.DB()?.getExpression(row.expr)
                             showWordModal.value = true;
                         }
                     },

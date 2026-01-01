@@ -1,4 +1,4 @@
-import {App, Notice, PluginSettingTab, Setting, Modal, moment, debounce} from "obsidian";
+import {App, Notice, PluginSettingTab, Setting, debounce} from "obsidian";
 
 import Server from "./api/server";
 import LanguageLearner from "./plugin";
@@ -6,14 +6,9 @@ import {t} from "./lang/helper";
 import {WarningModal, OpenFileModal} from "./modals"
 import {dicts} from "@dict/list";
 import store from "./store";
-import {DBDrive} from "@/db/db";
+import { StorageProviderDriveType } from "./storage/provider";
 
 export interface MyPluginSettings {
-    use_server: boolean;
-    host: string,
-    port: number;
-    use_https: boolean;
-    api_key: string,
     self_server: boolean;
     self_port: number;
     // lang
@@ -33,14 +28,7 @@ export interface MyPluginSettings {
     line_height: string;
     use_machine_trans: boolean;
 
-    //db type
-    db_type: DBDrive,
-
-    // indexed db
-    db_name: string;
-
-    // sqllit3
-    db_dir: string
+    storage: StorageSetting;
 
     // text db
     word_database: string;
@@ -52,12 +40,17 @@ export interface MyPluginSettings {
     review_delimiter: string;
 }
 
+export interface StorageSetting {
+    storage_type: StorageProviderDriveType,
+
+    storage_name: string;
+
+    // 驱动配置
+    drive: { [K in string]: any };
+}
+
 export const DEFAULT_SETTINGS: MyPluginSettings = {
-    port: 8086,
-    host: "127.0.0.1",
-    use_server: false,
-    use_https: false,
-    api_key: "",
+
     self_server: false,
     self_port: 3002,
     // lang
@@ -75,10 +68,30 @@ export const DEFAULT_SETTINGS: MyPluginSettings = {
         "deepl": {enable: true, priority: 5},
     },
     dict_height: "250px",
-    db_type: DBDrive.INDEXED,
-    db_dir: "",
-    // indexed
-    db_name: "WordDB",
+
+    // storage
+    storage: {
+        storage_type: StorageProviderDriveType.INDEXED,
+        storage_name: "WordDB",
+        drive: {
+            "api": {
+                port: 8086,
+                host: "127.0.0.1",
+                use_server: false,
+                api_key: "",
+            },
+            "indexed": {
+            },
+            "local_file": {
+                storage_path: "storage",
+            },
+            "sqlite3":{
+                storage_path: "storage",
+            },
+
+        }
+    },
+
     // text db
     word_database: "",
     review_database: "",
@@ -112,7 +125,7 @@ export class SettingTab extends PluginSettingTab {
 
         this.langSettings(containerEl);
         this.querySettings(containerEl);
-        this.dBSettings(containerEl);
+        this.storageSettings(containerEl);
         this.textDBSettings(containerEl);
         this.readingSettings(containerEl);
         this.completionSettings(containerEl);
@@ -245,19 +258,20 @@ export class SettingTab extends PluginSettingTab {
     }
 
 
-    dBSettings(containerEl: HTMLElement) {
+    storageSettings(containerEl: HTMLElement) {
         containerEl.createEl("h3", {text: t("IndexDB Database")});
 
         new Setting(containerEl)
             .setName(t("Database Type"))
             .addDropdown(funcKey => funcKey
-                .addOption(DBDrive.INDEXED, DBDrive.INDEXED)
-                .addOption(DBDrive.FILE, DBDrive.FILE)
-                .addOption(DBDrive.API, DBDrive.API)
-                .setValue(this.plugin.settings.db_type)
-                .onChange(async (value: DBDrive) => {
-                    this.plugin.settings.db_type = value;
-                    this.plugin.db.sync(this.plugin);
+                .addOption(StorageProviderDriveType.INDEXED, StorageProviderDriveType.INDEXED)
+                .addOption(StorageProviderDriveType.LOCAL_FILE, StorageProviderDriveType.LOCAL_FILE)
+                .addOption(StorageProviderDriveType.API, StorageProviderDriveType.API)
+                .addOption(StorageProviderDriveType.SQLITE, StorageProviderDriveType.SQLITE)
+                .setValue(this.plugin.settings.storage.storage_type)
+                .onChange(async (value: StorageProviderDriveType) => {
+                    this.plugin.settings.storage.storage_type = value;
+                    this.plugin.storage.sync(this.plugin);
 
                     await this.plugin.saveSettings();
                     this.display();
@@ -268,10 +282,10 @@ export class SettingTab extends PluginSettingTab {
             .setName(t("Database Name"))
             .setDesc(t("Reopen DB after changing database name"))
             .addText(text => text
-                .setValue(this.plugin.settings.db_name)
+                .setValue(this.plugin.settings.storage.storage_name)
                 .onChange(debounce(async (name) => {
-                    this.plugin.settings.db_name = name;
-                    this.plugin.db.sync(this.plugin);
+                    this.plugin.settings.storage.storage_name = name;
+                    this.plugin.storage.sync(this.plugin);
 
                     await this.plugin.saveSettings();
                 }, 1000, true))
@@ -279,21 +293,21 @@ export class SettingTab extends PluginSettingTab {
             .addButton(button => button
                 .setButtonText(t("Reopen"))
                 .onClick(async () => {
-                    this.plugin.db.reRegister(this.plugin.settings.db_type)
+                    this.plugin.storage.reRegister(this.plugin.settings.storage.storage_type)
                     new Notice("DB is Reopened");
                 })
             );
 
 
         // 本地数据库写入类型
-        if (this.plugin.settings.db_type === DBDrive.FILE) {
+        if (this.plugin.settings.storage.storage_type=== StorageProviderDriveType.LOCAL_FILE) {
             new Setting(containerEl)
                 .setName(t("Database Dir"))
                 .addText(text => text
-                    .setValue(this.plugin.settings.db_dir)
+                    .setValue(this.plugin.settings.storage.drive["local_file"]['storage_path'])
                     .onChange(debounce(async (path) => {
-                        this.plugin.settings.db_dir = path;
-                        this.plugin.db.sync(this.plugin);
+                        this.plugin.settings.storage.drive["local_file"]['storage_path'] = path;
+                        this.plugin.storage.sync(this.plugin);
 
                         await this.plugin.saveSettings();
                     }, 1000, true))
@@ -301,33 +315,33 @@ export class SettingTab extends PluginSettingTab {
         }
 
 
-        if (this.plugin.settings.db_type === DBDrive.API) {
+        if (this.plugin.settings.storage.storage_type === StorageProviderDriveType.API) {
             new Setting(containerEl)
                 .setName(t("Use https"))
                 .setDesc(t("Be sure your server enabled https"))
                 .addToggle(toggle => toggle
-                    .setDisabled(this.plugin.settings.use_server)
-                    .setValue(this.plugin.settings.use_https)
+                    .setDisabled(this.plugin.settings.storage.drive["api"].use_server)
+                    .setValue(this.plugin.settings.storage.drive["api"].use_https)
                     .onChange(async (use_https) => {
-                        this.plugin.settings.use_https = use_https;
-                        this.plugin.db.sync(this.plugin);
+                        this.plugin.settings.storage.drive["api"].use_https = use_https;
+                        this.plugin.storage.sync(this.plugin);
                         await this.plugin.saveSettings();
                         this.display();
                     })
                 );
 
-            this.plugin.settings.use_https && new Setting(containerEl)
+            this.plugin.settings.storage.drive["api"].use_https && new Setting(containerEl)
                 .setName(t("Api Key"))
                 .setDesc(
                     t("Input your api-key for authentication")
                 )
                 .addText((text) =>
                     text
-                        .setValue(this.plugin.settings.api_key)
-                        .setDisabled(this.plugin.settings.use_server)
+                        .setValue(this.plugin.settings.storage.drive["api"].api_key)
+                        .setDisabled(this.plugin.settings.storage.drive["api"].use_server)
                         .onChange(debounce(async (api_key) => {
-                            this.plugin.settings.api_key = api_key;
-                            this.plugin.db.sync(this.plugin);
+                            this.plugin.settings.storage.drive["api"].api_key = api_key;
+                            this.plugin.storage.sync(this.plugin);
                             await this.plugin.saveSettings();
                             this.display();
                         }, 500, true))
@@ -340,11 +354,11 @@ export class SettingTab extends PluginSettingTab {
                 )
                 .addText((text) =>
                     text
-                        .setValue(this.plugin.settings.host)
-                        .setDisabled(this.plugin.settings.use_server)
+                        .setValue(this.plugin.settings.storage.drive["api"].host)
+                        .setDisabled(this.plugin.settings.storage.drive["api"].use_server)
                         .onChange(debounce(async (host) => {
-                            this.plugin.settings.host = host;
-                            this.plugin.db.sync(this.plugin);
+                            this.plugin.settings.storage.drive["api"].host = host;
+                            this.plugin.storage.sync(this.plugin);
                             await this.plugin.saveSettings();
                         }, 500, true))
                 );
@@ -356,12 +370,12 @@ export class SettingTab extends PluginSettingTab {
                 )
                 .addText((text) =>
                     text
-                        .setValue(String(this.plugin.settings.port))
+                        .setValue(String(this.plugin.settings.storage.drive["api"].port))
                         .onChange(debounce(async (port) => {
                             let p = Number(port);
                             if (!isNaN(p) && p >= 1023 && p <= 65535) {
-                                this.plugin.settings.port = p;
-                                this.plugin.db.sync(this.plugin);
+                                this.plugin.settings.storage.drive["api"].port = p;
+                                this.plugin.storage.sync(this.plugin);
 
                                 await this.plugin.saveSettings();
                             } else {
@@ -384,7 +398,7 @@ export class SettingTab extends PluginSettingTab {
                         // let fr = new FileReader()
                         // fr.onload = async () => {
                         // let data = JSON.parse(fr.result as string)
-                        await this.plugin.db.DB().importDB(file);
+                        await this.plugin.storage.DB().importDB(file);
                         new Notice("Imported");
                         // }
                         // fr.readAsText(file)
@@ -395,7 +409,7 @@ export class SettingTab extends PluginSettingTab {
             .addButton(button => button
                 .setButtonText(t("Export"))
                 .onClick(async () => {
-                    await this.plugin.db.DB().exportDB();
+                    await this.plugin.storage.DB().exportDB();
                     new Notice("Exported");
                 })
             );
@@ -405,7 +419,7 @@ export class SettingTab extends PluginSettingTab {
             .addButton(button => button
                 .setButtonText(t("Export Word"))
                 .onClick(async () => {
-                    let words = await this.plugin.db.DB().getAllExpressionSimple(true);
+                    let words = await this.plugin.storage.DB().getAllExpressionSimple(true);
                     let ignores = words.filter(w => (w.status !== 0 && w.t !== "PHRASE")).map(w => w.expression);
                     await navigator.clipboard.writeText(ignores.join("\n"));
                     new Notice(t("Copied to clipboard"));
@@ -413,7 +427,7 @@ export class SettingTab extends PluginSettingTab {
             .addButton(button => button
                 .setButtonText(t("Export Word and Phrase"))
                 .onClick(async () => {
-                    let words = await this.plugin.db.DB().getAllExpressionSimple(true);
+                    let words = await this.plugin.storage.DB().getAllExpressionSimple(true);
                     let ignores = words.filter(w => w.status !== 0).map(w => w.expression);
                     await navigator.clipboard.writeText(ignores.join("\n"));
                     new Notice(t("Copied to clipboard"));
@@ -426,7 +440,7 @@ export class SettingTab extends PluginSettingTab {
             .addButton(button => button
                 .setButtonText(t("Export"))
                 .onClick(async () => {
-                    let words = await this.plugin.db.DB().getAllExpressionSimple(true);
+                    let words = await this.plugin.storage.DB().getAllExpressionSimple(true);
                     let ignores = words.filter(w => w.status === 0).map(w => w.expression);
                     await navigator.clipboard.writeText(ignores.join("\n"));
                     new Notice(t("Copied to clipboard"));
@@ -445,9 +459,9 @@ export class SettingTab extends PluginSettingTab {
                         this.app,
                         t("Are you sure you want to destroy your database?"),
                         async () => {
-                            this.plugin.db.DB().destroyAll();
-                            this.plugin.db.destroyed();
-                            this.plugin.db.syncSetting(this.plugin).drive(this.plugin.settings.db_type);
+                            this.plugin.storage.DB().destroyAll();
+                            this.plugin.storage.destroyed();
+                            this.plugin.storage.syncSetting(this.plugin).drive(this.plugin.settings.storage.storage_type);
 
                             new Notice("已清空");
                         });

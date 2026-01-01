@@ -32,8 +32,8 @@ import type {Position} from "./constant";
 import {InputModal} from "./modals"
 
 import Global from "./views/Global.vue";
-import {DbSingleton} from "./db/db";
-import {WordType} from "@/db/interface";
+import {WordType} from "@/storage/interface";
+import { StorageProvider } from "./storage/provider";
 
 
 export const FRONT_MATTER_KEY: string = "langr";
@@ -43,7 +43,7 @@ export default class LanguageLearner extends Plugin {
     settings: MyPluginSettings;
     appEl: HTMLElement;
     vueApp: VueApp;
-    db: DbSingleton;
+    storage: StorageProvider;
     server: Server;
     parser: TextParser;
     markdownButtons: Record<string, HTMLElement> = {};
@@ -63,8 +63,8 @@ export default class LanguageLearner extends Plugin {
         //     : new LocalDb(this);
         // await this.db.open();
 
-        this.db = new DbSingleton(this);
-        this.db.drive(this.settings.db_type)
+        this.storage = new StorageProvider(this);
+        this.storage.drive(this.settings.storage.storage_type)
 
         // 设置解析器
         this.parser = new TextParser(this);
@@ -83,7 +83,7 @@ export default class LanguageLearner extends Plugin {
         // 	callback: () => new Notice("hello!")
         // })
 
-        await this.replacePDF();
+        // await this.replacePDF()
 
         this.initStore();
 
@@ -114,11 +114,11 @@ export default class LanguageLearner extends Plugin {
         this.app.workspace.detachLeavesOfType(STAT_VIEW_TYPE);
         this.app.workspace.detachLeavesOfType(READING_VIEW_TYPE);
 
-        this.db.destroyed();
+        this.storage.destroyed();
         this.server?.close();
-        if (await app.vault.adapter.exists(".obsidian/plugins/obsidian-language-learner/pdf/web/viewer.html")) {
-            this.registerExtensions([PDF_FILE_EXTENSION], "pdf");
-        }
+        // if (await app.vault.adapter.exists(".obsidian/plugins/obsidian-language-learner/pdf/web/viewer.html")) {
+        //     this.registerExtensions([PDF_FILE_EXTENSION], "pdf");
+        // }
 
         this.vueApp.unmount();
         this.appEl.remove();
@@ -132,27 +132,27 @@ export default class LanguageLearner extends Plugin {
         };
     }
 
-    async replacePDF() {
-        if (await app.vault.adapter.exists(
-            ".obsidian/plugins/obsidian-language-learner/pdf/web/viewer.html"
-        )) {
-            this.registerView(VIEW_TYPE_PDF, (leaf) => {
-                return new PDFView(leaf);
-            });
+    // async replacePDF() {
+    //     if (await app.vault.adapter.exists(
+    //         ".obsidian/plugins/obsidian-language-learner/pdf/web/viewer.html"
+    //     )) {
+    //         this.registerView(VIEW_TYPE_PDF, (leaf) => {
+    //             return new PDFView(leaf);
+    //         });
 
-            (this.app as any).viewRegistry.unregisterExtensions([
-                PDF_FILE_EXTENSION,
-            ]);
-            this.registerExtensions([PDF_FILE_EXTENSION], VIEW_TYPE_PDF);
+    //         (this.app as any).viewRegistry.unregisterExtensions([
+    //             PDF_FILE_EXTENSION,
+    //         ]);
+    //         this.registerExtensions([PDF_FILE_EXTENSION], VIEW_TYPE_PDF);
 
-            this.registerDomEvent(window, "message", (evt) => {
-                if (evt.data.type === "search") {
-                    // if (evt.data.funckey || this.store.searchPinned)
-                    this.queryWord(evt.data.selection);
-                }
-            });
-        }
-    }
+    //         this.registerDomEvent(window, "message", (evt) => {
+    //             if (evt.data.type === "search") {
+    //                 // if (evt.data.funckey || this.store.searchPinned)
+    //                 this.queryWord(evt.data.selection);
+    //             }
+    //         });
+    //     }
+    // }
 
     initStore() {
         this.store.dark = document.body.hasClass("theme-dark");
@@ -283,7 +283,7 @@ export default class LanguageLearner extends Plugin {
             return;
         }
         // 获取所有非无视单词的简略信息
-        let words = await this.db.DB().getAllExpressionSimple(false);
+        let words = await this.storage.DB().getAllExpressionSimple(false);
 
         let classified: number[][] = Array(5)
             .fill(0)
@@ -347,7 +347,7 @@ export default class LanguageLearner extends Plugin {
             });
 
         // let data = await this.db.getExpressionAfter(this.settings.last_sync)
-        let data = await this.db.DB().getExpressionAfter("1970-01-01T00:00:00Z");
+        let data = await this.storage.DB().getExpressionAfter("1970-01-01T00:00:00Z");
         if (data.length === 0) {
             // new Notice("Nothing new")
             return;
@@ -364,7 +364,7 @@ export default class LanguageLearner extends Plugin {
                 : "**Sentences**:\n" +
                 word.sentences.map((sen) => {
                     return (
-                        `*${sen.text.trim()}*` + "\n" +
+                        `*${sen.sentence.trim()}*` + "\n" +
                         (sen.trans ? sen.trans.trim() + "\n" : "") +
                         (sen.origin ? sen.origin.trim() : "")
                     );
@@ -406,7 +406,7 @@ export default class LanguageLearner extends Plugin {
                             : null;
 
                         if (!file ||
-                            !cache?.frontmatter ||
+                            !cache?.frontmatter || 
                             !cache?.frontmatter[FRONT_MATTER_KEY]
                         ) {
                             return next.call(this, m);
@@ -437,19 +437,23 @@ export default class LanguageLearner extends Plugin {
                                     .getCache(state.state.file);
                                 if (cache?.frontmatter && cache.frontmatter[FRONT_MATTER_KEY]) {
                                     if (!pluginSelf.markdownButtons["reading"]) {
-                                        pluginSelf.markdownButtons["reading"] =
-                                            (this.view as MarkdownView).addAction(
-                                                "view",
-                                                t("Open as Reading View"),
-                                                () => {
-                                                    pluginSelf.setReadingView(this);
-                                                }
-                                            );
-                                        pluginSelf.markdownButtons["reading"].addClass("change-to-reading");
+                                        // 在软件初始化的时候，view上面可能没有 addAction 这个方法
+                                        setTimeout(() => {
+                                            pluginSelf.markdownButtons["reading"] =
+                                                (this.view as MarkdownView).addAction(
+                                                    "view",
+                                                    t("Open as Reading View"),
+                                                    () => {
+                                                        pluginSelf.setReadingView(this);
+                                                    }
+                                                );
+                                            pluginSelf.markdownButtons["reading"].addClass("change-to-reading");
+
+                                        })
                                     }
                                 } else {
                                     (this.view.actionsEl as HTMLElement)
-                                        .querySelectorAll(".change-to-reading")
+                                        ?.querySelectorAll(".change-to-reading")
                                         .forEach(el => el.remove());
                                     // pluginSelf.markdownButtons["reading"]?.remove();
                                     pluginSelf.markdownButtons["reading"] = null;
@@ -554,7 +558,7 @@ export default class LanguageLearner extends Plugin {
             let target = evt.target as HTMLElement;
             if (
                 target.tagName === "H4" &&
-                target.matchParent("#sr-flashcard-view")
+                target.matchParent("#sr-modal-content")
             ) {
                 let word = target.textContent;
                 let accent = this.settings.review_prons;

@@ -6,7 +6,7 @@
             <div class="function-area">
                 <audio controls v-if="audioSource" :src="audioSource" />
                 <div style="display: flex">
-                    <button @click="activeNotes = true">做笔记</button>
+                    <button @click="activeNotes = true">{{t("Jot down Notes")}}</button>
                     <div style="
                             flex: 1;
                             display: flex;
@@ -16,12 +16,12 @@
                         <CountBar v-if="plugin.settings.word_count" :unknown="unknown" :learn="learn"
                             :ignore="ignore" />
                     </div>
-                    <button v-if="page * pageSize < totalLines" class="finish-reading" @click="addIgnores">
-                        结束阅读并转入下一页
-                    </button>
-                    <button v-else class="finish-reading" @click="addIgnores">
-                        结束阅读
-                    </button>
+                    <NButton v-if="page * pageSize < totalLines" class="finish-reading" @click="addIgnores" :loading="submitLoading">
+                        {{ t("Complete reading and proceed to the next page") }}
+                    </NButton>
+                    <NButton v-else class="finish-reading" @click="addIgnores" :loading="submitLoading">
+                        {{ t("Complete reading") }}
+                    </NButton>
                 </div>
             </div>
             <!-- 阅读区 -->
@@ -71,6 +71,7 @@ import {
     watchEffect,
 } from "vue";
 import {
+    NButton,
     NPagination,
     NConfigProvider,
     darkTheme,
@@ -79,7 +80,7 @@ import {
     NInput,
     GlobalThemeOverrides,
 } from "naive-ui";
-import { MarkdownRenderer, Platform } from "obsidian";
+import { MarkdownRenderer, Platform  } from "obsidian";
 import PluginType from "@/plugin";
 import { t } from "@/lang/helper";
 import { useEvent } from "@/utils/use";
@@ -91,6 +92,7 @@ let vueThis = getCurrentInstance();
 let view = vueThis.appContext.config.globalProperties.view as ReadingView;
 let plugin = view.plugin as PluginType;
 let contentEl = view.contentEl as HTMLElement;
+const submitLoading = ref(false);
 
 // 切换明亮/黑暗模式
 const theme = computed(() => {
@@ -105,12 +107,15 @@ const themeConfig: GlobalThemeOverrides = {
     },
 };
 
+const localPrefix = require("electron").ipcRenderer.sendSync("file-url");
 let frontMatter = plugin.app.metadataCache.getFileCache(view.file).frontmatter;
 let audioSource = (frontMatter["langr-audio"] || "") as string;
 if (audioSource && audioSource.startsWith("~/")) {
-    const prefix = Platform.isDesktopApp ? "app://local/" : "http://localhost/_capacitor_file_";
+    const prefix = Platform.isDesktopApp ? localPrefix : "http://localhost/_capacitor_file_";
     audioSource =
         prefix + plugin.constants.basePath + audioSource.slice(1);
+}else {
+    audioSource = audioSource.startsWith("http") ? audioSource : localPrefix + audioSource;
 }
 
 // 记笔记
@@ -247,6 +252,8 @@ watch(
 
 // 添加无视单词
 async function addIgnores() {
+    submitLoading.value = true;
+
     let ignores = contentEl.querySelectorAll(
         ".word.new"
     ) as unknown as HTMLElement[];
@@ -254,7 +261,9 @@ async function addIgnores() {
     ignores.forEach((el) => {
         ignore_words.add(el.textContent.toLowerCase());
     });
-    await plugin.db.DB().postIgnoreWords([...ignore_words]);
+
+    await plugin.storage.DB().postIgnoreWords([...ignore_words]);
+
     // this.setViewData(this.data)
     refreshHandle.value = !refreshHandle.value;
     dispatchEvent(new CustomEvent("obsidian-langr-refresh-stat"));
@@ -264,6 +273,8 @@ async function addIgnores() {
     }
 
     refreshCount();
+
+    submitLoading.value = false;
 }
 
 let reading = ref(null);

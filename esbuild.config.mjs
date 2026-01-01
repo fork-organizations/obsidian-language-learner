@@ -2,6 +2,7 @@ import esbuild from "esbuild";
 import process from "process";
 import builtins from 'builtin-modules';
 import vue from "@the_tree/esbuild-plugin-vue3";
+import copyStaticFiles from "esbuild-copy-static-files";
 
 const banner =
     `/*
@@ -12,12 +13,17 @@ if you want to view the source, please visit the github repository of this plugi
 
 const prod = (process.argv[2] === 'production');
 
-await esbuild.build({
+const jsOptions = {
     banner: {
         js: banner,
     },
     plugins: [
         vue({ isProd: true }),
+        copyStaticFiles({
+            src: './node_modules/sql.js/dist/sql-wasm.wasm',
+            dest: './sql-wasm.wasm',
+            overwrite: true,
+        }),
     ],
     entryPoints: ['./src/plugin.ts'],
     bundle: true,
@@ -47,26 +53,29 @@ await esbuild.build({
         '@codemirror/view',
         ...builtins],
     format: 'cjs',
-    watch: !prod,
     target: 'es2016',
     logLevel: "info",
     sourcemap: prod ? false : 'inline',
     minify: prod ? true : false,
     treeShaking: true,
     outfile: 'main.js',
-}).catch(() => process.exit(1));
+};
 
-await esbuild.build({
+const cssOptions = {
     entryPoints: ["./src/main.css"],
     outfile: "styles.css",
-    watch: !prod,
     bundle: true,
     allowOverwrite: true,
     minify: false,
-});
+};
 
-// if (!prod) {
-// 	fs.rm("./main.css", () => {
-// 		console.log("Build completed successfully.")
-// 	})
-// }
+if (prod) {
+    await esbuild.build(jsOptions).catch(() => process.exit(1));
+    await esbuild.build(cssOptions).catch(() => process.exit(1));
+} else {
+    const jsContext = await esbuild.context(jsOptions);
+    await jsContext.watch();
+    
+    const cssContext = await esbuild.context(cssOptions);
+    await cssContext.watch();
+}

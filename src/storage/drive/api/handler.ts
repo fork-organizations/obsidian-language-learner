@@ -8,13 +8,13 @@ import {
     Span,
     WordCount,
     WordsPhrase
-} from "@/db/interface";
+} from "@/storage/interface";
 
-import DbProvider from "../../base";
 import * as console from "console";
+import StorageDrive from "@/storage/drive";
 
 
-export class WebDb extends DbProvider {
+export class ApiStorageDrive extends StorageDrive {
     host: string;
     port: number;
     https: boolean;

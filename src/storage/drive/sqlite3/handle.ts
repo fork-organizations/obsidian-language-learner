@@ -1,0 +1,628 @@
+import StorageDrive from "@/storage/drive";
+import {
+    ArticleWords,
+    CountInfo,
+    ExpressionInfo,
+    ExpressionInfoSimple, Phrase,
+    ReviewWord,
+    Sentence, Word,
+    WordCount,
+    WordsPhrase,
+    WordType
+} from "@/storage/interface";
+
+import Plugin from "@/plugin";
+import path from "path";
+import initSqlJs, {Database, SqlJsStatic} from "sql.js";
+import fs from "fs";
+import {moment} from "obsidian";
+import {ConnectionsTable, ExpressionsTable, NotesTable, SentencesTable, Tables, TagsTable} from "@/storage/drive/types";
+import {
+    connectionsTableTransform,
+    expressionsTableTransform,
+    mapSqlResultToTypedArray,
+    mapSqlResultToTypedObject,
+    notesTableTransform,
+    sentencesTableTransform,
+    tagsTableTransform
+} from "@/storage/drive/sqlite3/uitils";
+import {createAutomaton} from "ac-auto";
+
+
+export class Sqlite3StorageDrive extends StorageDrive {
+
+
+    plugin: Plugin;
+    basePath: string;
+
+    storageName: string;
+    storagePath: string;
+    storageDir: string;
+
+    sqlJs: SqlJsStatic = null;
+    storageDrive: Database = null
+
+    constructor(plugin: Plugin) {
+        super();
+        // todo 待优化不确定目前是否有更好的获取当前根目录方法
+        this.basePath = (app.vault.adapter as any).getBasePath();
+
+        this.plugin = plugin;
+        this.storageName = plugin.settings.storage.storage_name;
+        this.storageDir = plugin.settings.storage.drive["sqlite3"].storage_dir || "storage";
+
+        // 创建存储目录
+        const dir = path.join(this.basePath, this.storageDir);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
+
+        this.storagePath = path.join(dir, this.storageName+".sqlite");
+        console.log("storagePath", this.storagePath, this.basePath, this.storageDir, this.storageName+".sqlite")
+
+    }
+
+    async init() {
+        const wasmName = "sql-wasm.wasm";
+        // Construct the absolute path to the plugin directory
+        // this.plugin.manifest.dir is relative to the vault root
+        const pluginDir = this.plugin.manifest.dir
+            ? path.join(this.basePath, this.plugin.manifest.dir)
+            : path.join(this.basePath, ".obsidian", "plugins", this.plugin.manifest.id);
+
+        let wasmPath = path.join(pluginDir, wasmName);
+
+        // Check if wasm exists in plugin root, otherwise check node_modules (dev)
+        if (!fs.existsSync(wasmPath)) {
+             wasmPath = path.join(pluginDir, "node_modules", "sql.js", "dist", wasmName);
+        }
+
+        console.log(wasmPath, 'wasmPath')
+
+        const config: any = {};
+        if (fs.existsSync(wasmPath)) {
+            try {
+                config.wasmBinary = fs.readFileSync(wasmPath);
+            } catch (err) {
+                console.error("Failed to read WASM file:", err);
+            }
+        } else {
+            console.warn("sql-wasm.wasm not found at", wasmPath);
+        }
+
+        this.sqlJs = await initSqlJs(config);
+
+        // this.sqlJs = await initSqlJs({})
+
+        this.initDatabase();
+
+        // 创建初始数据表结构
+        if (this.storageDrive) {
+            this.createDbTables();
+        }
+    }
+
+    initDatabase() {
+        try {
+            // 检查本地数据库文件是否存在
+            if (fs.existsSync(this.storagePath)) {
+                // 读取本地数据库文件的二进制数据
+                const dbData = fs.readFileSync(this.storagePath);
+                // 加载已有数据库
+                this.storageDrive = new this.sqlJs.Database(new Uint8Array(dbData));
+            } else {
+                // 本地文件不存在，创建新的数据库（初始为内存数据库，后续需导出到文件）
+                this.storageDrive = new this.sqlJs.Database();
+            }
+        } catch (error) {
+            console.error("初始化数据库失败：", error);
+            // 异常时创建新数据库兜底
+            this.storageDrive = new this.sqlJs.Database();
+        }
+    }
+
+    createDbTables() {
+        if (!this.storageDrive) return;
+
+        this.storageDrive.run(`
+            CREATE TABLE IF NOT EXISTS  expressions (
+                 _id INTEGER  PRIMARY KEY AUTOINCREMENT,
+                 expression text not null,
+                 meaning text default '',
+                 status INTEGER default 0,
+                 t text default '',
+                 date DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS  "expression_index" ON "expressions" ( "expression" ASC);
+
+            CREATE INDEX IF NOT EXISTS "status_index" ON "expressions" ( "status");
+
+            CREATE INDEX IF NOT EXISTS "t_index" ON "expressions" ( "t");
+        `);
+
+        this.storageDrive.run(`
+            CREATE TABLE IF NOT EXISTS tags (
+                _id INTEGER  PRIMARY KEY AUTOINCREMENT,
+                expression text not null,
+                tag text,
+                date DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS  "tag_expression_index" ON "tags" ("expression" );
+        `);
+
+        this.storageDrive.run(`
+            CREATE TABLE IF NOT EXISTS notes (
+                 _id INTEGER  PRIMARY KEY AUTOINCREMENT,
+                 expression text not null,
+                 note text,
+                 date DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS "note_expression_index" ON "notes" ("expression" );
+        `);
+
+        this.storageDrive.run(`
+            CREATE TABLE IF NOT EXISTS sentences (
+                 _id INTEGER  PRIMARY KEY AUTOINCREMENT,
+                 expression text not null,
+                 sentence text,
+                 trans text default '',
+                 origin  text default '',
+                 date DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS "sentence_expression_index" ON "sentences" ("expression" );
+        `);
+
+        this.storageDrive.run(`
+            CREATE TABLE IF NOT EXISTS connections (
+               _id INTEGER  PRIMARY KEY AUTOINCREMENT,
+               expression text not null,
+               connection text,
+               date DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS "connection_expression_index" ON "connections" ("expression" );
+        `);
+
+
+
+        this.exportDbToFile();
+    }
+
+    open(): Promise<void> {
+        this.init();
+        return null;
+    }
+
+    close(): void {
+        this.storageDrive.close();
+        this.sqlJs = null;
+    }
+
+    exportDbToFile() {
+        if (!this.storageDrive) return;
+        try {
+            // 1. 将数据库导出为二进制数组
+            const dbData = this.storageDrive.export();
+            // 2. 将二进制数组写入本地文件
+            fs.writeFileSync(this.storagePath, Buffer.from(dbData));
+
+            console.log("数据库已持久化到文件：", this.storagePath);
+        } catch (error) {
+            console.error("数据库持久化导出失败：", error);
+        }
+    }
+
+    async countSeven(): Promise<WordCount[]> {
+
+        if (!this.storageDrive) return Promise.resolve([]);
+
+        const spans = [0, 1, 2, 3, 4, 5, 6].map((i) => {
+            const start = moment().subtract(6, "days").startOf("day");
+            const from = start.add(i, "days");
+            return {
+                from: from.unix(),
+                to: from.endOf("day").unix(),
+            };
+        });
+
+        const counts: WordCount[] = [];
+
+        // 对每一天计算
+        for (const span of spans) {
+            // 当日
+            const today = new Array(5).fill(0);
+
+            const todayResult = this.storageDrive.exec("select * from " + Tables.EXPRESSION + " INDEXED BY t_index where t = ? and date >= ? and date <= ? order by date desc", [WordType.WORD, span.from, span.to]);
+            if (todayResult.length > 0) {
+                const expression = mapSqlResultToTypedArray<ExpressionsTable>(todayResult[0], expressionsTableTransform);
+                expression.forEach(expr => {
+                    today[expr.status]++;
+                })
+            }
+
+
+
+            // 累计
+            const accumulated = new Array(5).fill(0);
+            const accumulatedResult = this.storageDrive.exec("select * from " + Tables.EXPRESSION + " INDEXED BY t_index where t = ? and date <= ? order by date desc", [WordType.WORD, span.to]);
+            if (accumulatedResult.length > 0) {
+                const expression = mapSqlResultToTypedArray<ExpressionsTable>(accumulatedResult[0], expressionsTableTransform);
+                expression.forEach(expr => {
+                    accumulated[expr.status]++;
+                })
+            }
+
+            counts.push({today, accumulated});
+        }
+
+        return counts;
+
+    }
+
+    destroyAll(): Promise<void> {
+        this.storageDrive.run(`
+            DROP TABLE IF EXISTS "expressions";
+            DROP TABLE IF EXISTS "tags";
+            DROP TABLE IF EXISTS "notes";
+            DROP TABLE IF EXISTS "sentences";
+            DROP TABLE IF EXISTS "connections";
+        `);
+
+        this.exportDbToFile();
+        return null;
+    }
+
+    async exportDB() {
+        const blob = this.storageDrive.export();
+
+        try {
+            fs.writeFileSync(this.storagePath, Buffer.from(blob));
+        } catch (error) {
+            console.error("数据库持久化导出失败：", error);
+        }
+    }
+
+    async getAllExpressionSimple(ignores?: boolean): Promise<ExpressionInfoSimple[]> {
+        const bottomStatus = ignores ? -1 : 0;
+
+        const exprsResult = this.storageDrive.exec("select * from " + Tables.EXPRESSION + " INDEXED BY status_index where status >= ? order by date desc", [bottomStatus]);
+        if (exprsResult.length <= 0) {
+            return [];
+        }
+
+        const exprs = mapSqlResultToTypedArray<ExpressionsTable>(exprsResult[0], expressionsTableTransform);
+        return exprs.map(expr => {
+            const res: ExpressionInfoSimple = {
+                expression: expr.expression,
+                meaning: expr.meaning,
+                status: expr.status,
+                t: expr.t,
+                tags: [],
+                note_num: 0,
+                sen_num: 0,
+                date: expr.date
+            };
+
+            const tagsResult = this.storageDrive.exec("select * from " + Tables.TAGS + " INDEXED BY tag_expression_index where expression = ?", [expr.expression]);
+            if (tagsResult.length > 0) {
+                const tags = mapSqlResultToTypedArray<TagsTable>(tagsResult[0], tagsTableTransform);
+                res.tags = tags.map(tag => tag.tag);
+            }
+
+            const noteResult = this.storageDrive.exec("select count(_id) from " + Tables.NOTES + " INDEXED BY note_expression_index where expression = ?", [expr.expression]);
+            if (noteResult.length > 0) {
+                res.note_num = noteResult.length > 0 ? Number(noteResult[0].values[0][0]) : 0;
+            }
+
+            const sentenceResult = this.storageDrive.exec("select count(_id) from " + Tables.SENTENCE + " INDEXED BY sentence_expression_index where expression = ?", [expr.expression]);
+            if (sentenceResult.length > 0) {
+                res.sen_num = sentenceResult.length > 0 ? Number(sentenceResult[0].values[0][0]) : 0;
+            }
+
+            return res
+        });
+    }
+
+    async getCount(): Promise<CountInfo> {
+        const counts: { "WORD": number[], "PHRASE": number[]; } = {
+            "WORD": new Array(5).fill(0),
+            "PHRASE": new Array(5).fill(0),
+        };
+
+        const exprsResult = this.storageDrive.exec("select * from " + Tables.EXPRESSION + " INDEXED BY t_index");
+        if (exprsResult.length > 0) {
+            const expression = mapSqlResultToTypedArray<ExpressionsTable>(exprsResult[0], expressionsTableTransform);
+            expression.forEach(expr => {
+                counts[expr.t as WordType][expr.status]++;
+            })
+        }
+
+        return {
+            word_count: counts.WORD,
+            phrase_count: counts.PHRASE
+        };
+    }
+
+    async getExpression(keyword: string): Promise<ExpressionInfo> {
+        keyword = keyword.toLowerCase();
+        const exprsResult = this.storageDrive.exec("select * from " + Tables.EXPRESSION + " INDEXED BY expression_index where expression = ? limit 1", [keyword]);
+        console.log(exprsResult, 'exprsResult')
+        if (exprsResult.length <= 0) {
+            return null;
+        }
+
+        const exprs = mapSqlResultToTypedObject<ExpressionsTable>(exprsResult[0], expressionsTableTransform);
+        const result: ExpressionInfo = {
+            expression: exprs.expression,
+            meaning: exprs.meaning,
+            status: exprs.status,
+            t: exprs.t,
+            tags: [],
+            notes: [],
+            sentences: [] as Sentence[], // 明确指定类型
+            connections: [],
+            date: exprs.date
+        };
+
+        const tagsResult = this.storageDrive.exec("select * from " + Tables.TAGS + " INDEXED BY tag_expression_index where expression = ?", [exprs.expression]);
+        if (tagsResult.length > 0) {
+            const tags = mapSqlResultToTypedArray<TagsTable>(tagsResult[0], tagsTableTransform);
+            result.tags = tags.map(tag => tag.tag);
+        }
+
+        const notesResult = this.storageDrive.exec("select * from " + Tables.NOTES + " INDEXED BY note_expression_index where expression = ?", [exprs.expression]);
+        if (notesResult.length > 0) {
+            const notes = mapSqlResultToTypedArray<NotesTable>(notesResult[0], notesTableTransform);
+            result.notes = notes.map(note => note.note);
+        }
+
+        const sentencesResult = this.storageDrive.exec("select * from " + Tables.SENTENCE + " INDEXED BY sentence_expression_index where expression = ?", [exprs.expression]);
+        if (sentencesResult.length > 0) {
+            result.sentences = mapSqlResultToTypedArray<SentencesTable>(sentencesResult[0], sentencesTableTransform);
+        }
+
+        const connectionsResult = this.storageDrive.exec("select * from " + Tables.CONNECTIONS + " INDEXED BY connection_expression_index where expression = ?", [exprs.expression]);
+        if (connectionsResult.length > 0) {
+            const connections = mapSqlResultToTypedArray<ConnectionsTable>(connectionsResult[0], connectionsTableTransform);
+            result.connections = connections.map(connection => connection.connection);
+        }
+
+        return result;
+    }
+
+    async getExpressionAfter(time: string): Promise<ReviewWord[]> {
+        const unixStamp = moment.utc(time).unix();
+        const expressionResult = this.storageDrive.exec("select * from " + Tables.EXPRESSION + " INDEXED BY status_index where status > 0 date > ? order by date asc", [unixStamp]);
+        if (expressionResult.length <= 0) {
+            return [];
+        }
+
+        const expressions = mapSqlResultToTypedArray<ExpressionsTable>(expressionResult[0], expressionsTableTransform);
+
+        const res: ReviewWord[] = [];
+        for (const expr of expressions) {
+            const sentencesResult = this.storageDrive.exec("select * from " + Tables.SENTENCE + " INDEXED BY sentence_expression_index where expression = ?", [expr.expression]);
+            const sentences = mapSqlResultToTypedArray<SentencesTable>(sentencesResult[0], sentencesTableTransform);
+
+            sentences.forEach(sentence => {
+                res.push({
+                    title: expr.expression,
+                    expression: sentence.sentence.replace(expr.expression, `==${expr.expression}==`),
+                    meaning: sentence.trans,
+                    status: expr.status,
+                    t: WordType.PHRASE,
+                    notes: [],
+                    sentences: [],
+                    tags: expr.tags,
+                });
+            })
+
+            const notesResult = this.storageDrive.exec("select * from " + Tables.NOTES + " INDEXED BY note_expression_index where expression = ?", [expr.expression]);
+            const notes = mapSqlResultToTypedArray<NotesTable>(notesResult[0], notesTableTransform);
+
+            const tagsResult = this.storageDrive.exec("select * from " + Tables.TAGS + " INDEXED BY tag_expression_index where expression = ?", [expr.expression]);
+            const tags = mapSqlResultToTypedArray<TagsTable>(tagsResult[0], tagsTableTransform);
+
+            res.push({
+                title: expr.expression,
+                expression: expr.expression,
+                meaning: expr.meaning,
+                status: expr.status,
+                t: expr.t,
+                notes: notes.map(note => note.note),
+                sentences,
+                tags: tags.map(tag => tag.tag),
+            });
+        }
+
+        return res;
+    }
+
+    async getExpressionsSimple(expressions: string[]): Promise<ExpressionInfoSimple[]> {
+        expressions = expressions.map(e => e.toLowerCase());
+
+        const expressionResult = this.storageDrive.exec("select * from " + Tables.EXPRESSION + " INDEXED BY expression_index where expression in (" + expressions.map(e => "?").join(",") + ")", expressions);
+        if (expressionResult.length > 0) {
+            const exprs = mapSqlResultToTypedArray<ExpressionsTable>(expressionResult[0], expressionsTableTransform);
+            return exprs.map(v => {
+
+                const sentencesResult = this.storageDrive.exec("select count(_id) from " + Tables.SENTENCE + " INDEXED BY sentence_expression_index where expression = ?", [v.expression]);
+                const sentencesCount = sentencesResult.length > 0 ? Number(sentencesResult[0].values[0][0]) : 0;
+
+                const tagsResult = this.storageDrive.exec("select count(_id) from " + Tables.TAGS + " INDEXED BY tag_expression_index where expression = ?", [v.expression]);
+                const tags = mapSqlResultToTypedArray<TagsTable>(tagsResult[0], tagsTableTransform);
+
+                const notesResult = this.storageDrive.exec("select count(_id) from " + Tables.NOTES + " INDEXED BY note_expression_index where expression = ?", [v.expression]);
+                const notesCount = notesResult.length > 0 ? Number(notesResult[0].values[0][0]) : 0;
+
+                return {
+                    expression: v.expression,
+                    meaning: v.meaning,
+                    status: v.status,
+                    t: v.t,
+                    tags: tags.map(tag => tag.tag),
+                    sen_num: sentencesCount,
+                    note_num: notesCount,
+                    date: v.date
+                };
+            });
+        }
+
+        return Promise.resolve([]);
+    }
+
+    async getStoredWords(payload: ArticleWords): Promise<WordsPhrase> {
+        const expressions = payload.words.map(e => e.toLowerCase());
+
+        const storedPhrases = new Map<string, number>();
+        const phrasesResult = this.storageDrive.exec("select * from " + Tables.EXPRESSION + " INDEXED BY t_index where t = 'PHRASE'");
+        if (phrasesResult.length > 0) {
+            const phrases = mapSqlResultToTypedArray<ExpressionsTable>(phrasesResult[0], expressionsTableTransform);
+            phrases.forEach(phrase => {
+                storedPhrases.set(phrase.expression, phrase.status);
+            });
+        }
+
+        const storedWords: Word[] = [];
+        const expressionResult = this.storageDrive.exec("select * from " + Tables.EXPRESSION + " INDEXED BY t_index where t = 'WORD' and  expression in (" + expressions.map(e => '?').join(",") + ")", expressions);
+        if (expressionResult.length > 0) {
+            const expressions = mapSqlResultToTypedArray<ExpressionsTable>(expressionResult[0], expressionsTableTransform);
+            expressions.forEach(expr => {
+                storedWords.push({text: expr.expression, status: expr.status});
+            });
+        }
+
+        const ac = await createAutomaton([...storedPhrases.keys()]);
+        const searchedPhrases = (await ac.search(payload.article)).map(match => {
+            return {text: match[1], status: storedPhrases.get(match[1]), offset: match[0]} as Phrase;
+        });
+
+        return {words: storedWords, phrases: searchedPhrases};
+    }
+
+    async getTags(): Promise<string[]> {
+        const tagsResult = this.storageDrive.exec("select * from " + Tables.TAGS + " group by tag", []);
+        if (tagsResult.length > 0) {
+            return mapSqlResultToTypedArray<TagsTable>(tagsResult[0], tagsTableTransform).map(tag => {
+                return tag.tag
+            });
+        }
+
+        return [];
+    }
+
+    async importDB(data: any): Promise<void> {
+
+        // this.destroyAll();
+        //
+        // this.storageDrive.
+
+        return null;
+    }
+
+    postExpression(payload: ExpressionInfo): Promise<number> {
+        const date = moment().format("YYYY-MM-DD HH:mm:ss");
+
+        for (const sen of payload.sentences) {
+            const senExistsResult = this.storageDrive.exec("select _id from " + Tables.SENTENCE + " INDEXED BY sentence_expression_index where expression = ? and sentence = ? limit 1", [payload.expression, sen.sentence]);
+            const senId = senExistsResult.length > 0 ? Number(senExistsResult[0].values[0][0]) : 0;
+            if (senId) {
+                this.storageDrive.exec("update " + Tables.SENTENCE + " set sentence = ?, trans = ?, origin = ?, date = ? where _id = ?", [sen.sentence, sen.trans, sen.origin, date, senId]);
+            } else {
+                this.storageDrive.exec("insert into " + Tables.SENTENCE + " (expression, sentence, trans, origin) values (?, ?, ?, ?)", [payload.expression, sen.sentence, sen.trans, sen.origin]);
+            }
+        }
+
+        for (const tag of payload.tags) {
+            const tagExistsResult = this.storageDrive.exec("select _id from " + Tables.TAGS + " INDEXED BY tag_expression_index where expression = ? and tag = ? limit 1", [payload.expression, tag]);
+            const tagId = tagExistsResult.length > 0 ? Number(tagExistsResult[0].values[0][0]) : 0;
+            if (tagId) {
+                this.storageDrive.exec("update " + Tables.TAGS + " set tag = ?, date = ? where _id = ?", [tag, date, tagId]);
+            } else {
+                this.storageDrive.exec("insert into " + Tables.TAGS + " (expression, tag) values (?, ?)", [payload.expression, tag])
+            }
+        }
+
+        for (const note of payload.notes) {
+            const noteExistsResult = this.storageDrive.exec("select _id from " + Tables.NOTES + " INDEXED BY note_expression_index where expression = ? and note = ? limit 1", [payload.expression, note]);
+            const noteId = noteExistsResult.length > 0 ? Number(noteExistsResult[0].values[0][0]) : 0;
+            if (noteId) {
+                this.storageDrive.exec("update " + Tables.NOTES + " set note = ?, date = ? where _id = ?", [note, date, noteId]);
+            } else {
+                this.storageDrive.exec("insert into " + Tables.NOTES + " (expression, note) values (?, ?)", [payload.expression, note]);
+            }
+        }
+
+        for (const conn of payload.connections) {
+            const connExistsResult = this.storageDrive.exec("select _id from " + Tables.CONNECTIONS + " INDEXED BY connection_expression_index where expression = ? and connection = ? limit 1", [payload.expression, conn]);
+            const connId = connExistsResult.length > 0 ? Number(connExistsResult[0].values[0][0]) : 0;
+            if (connId) {
+                this.storageDrive.exec("update " + Tables.CONNECTIONS + " set connection = ?, date = ? where _id = ?", [conn, date, connId]);
+            } else {
+                this.storageDrive.exec("insert into " + Tables.CONNECTIONS + " (expression, connection) values (?, ?)", [payload.expression, conn])
+            }
+        }
+
+        const existsResult = this.storageDrive.exec("select _id from " + Tables.EXPRESSION + " where expression = ? limit 1", [payload.expression]);
+        const id = existsResult.length > 0 ? Number(existsResult[0].values[0][0]) : 0;
+        if (id) {
+            this.storageDrive.exec("update " + Tables.EXPRESSION + " set expression = ?, meaning = ?, status = ?, t = ?, date = ? where _id = ?", [payload.expression, payload.meaning, payload.status, payload.t, date, id]);
+        } else {
+            this.storageDrive.exec("insert into " + Tables.EXPRESSION + " (expression, meaning, status, t, date) values (?, ?, ?, ?, ?)", [payload.expression, payload.meaning, payload.status, payload.t, date]);
+        }
+
+        this.exportDbToFile();
+
+        return Promise.resolve(200);
+    }
+
+    async postIgnoreWords(payload: string[]): Promise<void> {
+        const promises: Promise<void>[] = [];
+        const dataSet = new Set(payload.map(word => word.toLowerCase()));
+
+        // 去重复后再添加
+        const expressions: string[] = [...dataSet].map(word => `('${word}', '', 0, ${WordType.WORD})`);
+
+        // 触发每批 100 条的添加
+        for (let i = 0; i < expressions.length; i += 100) {
+            promises.push(new Promise((resolve, reject) => {
+                this.storageDrive.exec(`insert into ${Tables.EXPRESSION} (expression, meaning, status, t) values ${expressions.slice(i, i + 100).join(',')}`)
+                resolve();
+            }));
+        }
+
+        // 存储
+        Promise.all(promises).finally(() => this.exportDbToFile());
+    }
+
+    async removeExpression(expression: string): Promise<boolean> {
+        const expressionResult = this.storageDrive.exec("delete from " + Tables.EXPRESSION + " where expression = ?", [expression]);
+        const sentenceResult = this.storageDrive.exec("delete from " + Tables.SENTENCE + " where expression = ?", [expression]);
+        const tagsResult = this.storageDrive.exec("delete from " + Tables.TAGS + " where expression = ?", [expression]);
+        const notesResult = this.storageDrive.exec("delete from " + Tables.NOTES + " where expression = ?", [expression]);
+        const connResult = this.storageDrive.exec("delete from " + Tables.CONNECTIONS + " where expression = ?", [expression]);
+
+        const state = expressionResult.length > 0 && sentenceResult.length > 0 && tagsResult.length > 0 && notesResult.length > 0 && connResult.length > 0;
+
+        return Promise.resolve(state).finally(() => this.exportDbToFile());
+    }
+
+    async tryGetSen(text: string): Promise<Sentence> {
+        const sentenceResult = this.storageDrive.exec("select * from " + Tables.SENTENCE + " where sentence = ?", [text]);
+
+        if (sentenceResult.length > 0) {
+            const sentence = mapSqlResultToTypedObject<Sentence>(sentenceResult[0], sentencesTableTransform);
+            return {
+                ...sentence,
+            }
+        }
+
+        return null;
+    }
+
+
+}
