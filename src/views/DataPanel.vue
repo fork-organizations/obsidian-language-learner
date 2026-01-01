@@ -45,29 +45,26 @@
                     <span style="display: inline-block; width: 80px; font-size: 1.1em; font-weight: bold;">
                         Status:
                     </span>
-                    <select
-                        v-model="searchParams.status"
-                        @change="onSearchChange"
-                        style="padding: 4px 8px; border-radius: 4px; border: 1px solid #ccc;"
-                    >
-                        <option :value="undefined">All</option>
-                        <option v-for="(status, index) in statusMap" :key="index" :value="index">
-                            {{ status }}
-                        </option>
-                    </select>
+                    <NSelect
+                        v-model:value="searchParams.status"
+                        :options="statusOptions"
+                        size="small"
+                        style="width: 120px;"
+                        clearable
+                        @update:value="onSearchChange"
+                    />
 
                     <span style="display: inline-block; width: 80px; font-size: 1.1em; font-weight: bold; margin-left: 20px;">
                         Type:
                     </span>
-                    <select
-                        v-model="searchParams.t"
-                        @change="onSearchChange"
-                        style="padding: 4px 8px; border-radius: 4px; border: 1px solid #ccc;"
-                    >
-                        <option :value="undefined">All</option>
-                        <option value="WORD">Word</option>
-                        <option value="PHRASE">Phrase</option>
-                    </select>
+                    <NSelect
+                        v-model:value="searchParams.t"
+                        :options="typeOptions"
+                        size="small"
+                        style="width: 120px;"
+                        clearable
+                        @update:value="onSearchChange"
+                    />
                 </NSpace>
             </NSpace>
 
@@ -76,10 +73,15 @@
                 <span style="display: inline-block; width: 70px; font-size: 1.1em; font-weight: bold; margin-right: 5px;">
                     Tags:
                 </span>
-                <select v-model="mode" style="margin-right: 10px;">
-                    <option value="and">And</option>
-                    <option value="or">Or</option>
-                </select>
+                <NSelect
+                    v-model:value="mode"
+                    :options="[
+                        { label: 'And', value: 'and' },
+                        { label: 'Or', value: 'or' }
+                    ]"
+                    size="small"
+                    style="width: 80px; margin-right: 10px;"
+                />
                 <NTag v-for="(tag, i) in tags" size="small" checkable v-model:checked="checkedTags[i]" :key="i">
                     {{ "#" + tag }}
                 </NTag>
@@ -92,10 +94,15 @@
                 :columns="collumns"
                 :row-key="makeRowKey"
                 :remote="true"
-                :virtual-scroll-x="true"
+                :scroll-x="1000"
                 @update:checked-row-keys="handleCheck"
                 :pagination="paginationConfig"
                 @update:page="handlePageChange"
+                @update:page-count="handlePageCountChange"
+                @update:filters="handleFilterChange"
+                @update:sorter="handleSorterChange"
+                :single-line="false"
+                :bordered="false"
             />
         </NConfigProvider>
         <LearnPanelModal @onChangeWord="onChangeWord" @on-change-show="onChangeShow" :show="showWordModal" :word="word"/>
@@ -112,8 +119,7 @@ import {
     watch,
     watchEffect,
     getCurrentInstance,
-    Suspense,
-    defineAsyncComponent, defineComponent, onMounted,
+     onMounted,
 } from "vue";
 import {
     NConfigProvider,
@@ -124,6 +130,7 @@ import {
     NSpace,
     NInput,
     NButton,
+    NSelect,
 } from "naive-ui";
 import {t} from "@/lang/helper";
 
@@ -152,6 +159,7 @@ const theme = computed(() => {
 interface Row {
     expr: string;
     status: string;
+    statusIndex: number;
     meaning: string;
     tags: string[];
     date: string;
@@ -168,6 +176,28 @@ const statusMap = [
     t("Familiar"),
     t("Known"),
     t("Learned"),
+];
+
+// 状态颜色映射
+const statusColorMap: Record<number, string> = {
+    0: '#d1d5db',  // Ignore - 灰色
+    1: '#f59e0b',  // Learning - 橙色
+    2: '#3b82f6',  // Familiar - 蓝色
+    3: '#22c55e',  // Known - 绿色
+    4: '#10b981',  // Learned - 深绿色
+};
+
+// 状态下拉选项
+const statusOptions = computed(() => [
+    { label: "All", value: undefined },
+    ...statusMap.map((status, index) => ({ label: status, value: index }))
+]);
+
+// 类型下拉选项
+const typeOptions = [
+    { label: "All", value: undefined },
+    { label: "Word", value: "WORD" },
+    { label: "Phrase", value: "PHRASE" }
 ];
 
 const pagination = ref({
@@ -187,7 +217,7 @@ const searchParams = ref({
 
 // 排序状态
 const sortParams = ref({
-    field: 'date' as 'expression' | 'meaning' | 'status' | 'date',
+    field: 'date' as 'status' | 'date',
     order: 'desc' as 'asc' | 'desc'
 });
 
@@ -252,7 +282,9 @@ const onSearchChange = () => {
 };
 
 // 处理排序
-const handleSort = (field: 'expression' | 'meaning' | 'status' | 'date') => {
+const handleSort = async (field: 'status' | 'date') => {
+    console.log('Sorting by:', field, 'current params:', sortParams.value);
+
     if (sortParams.value.field === field) {
         // 切换排序方向
         sortParams.value.order = sortParams.value.order === 'asc' ? 'desc' : 'asc';
@@ -261,8 +293,12 @@ const handleSort = (field: 'expression' | 'meaning' | 'status' | 'date') => {
         sortParams.value.field = field;
         sortParams.value.order = 'desc';
     }
+
     pagination.value.page = 1;
-    expressions();
+    console.log('After sort:', sortParams.value);
+
+    // 强制重新加载数据
+    await expressions();
 };
 
 // 分页配置
@@ -272,7 +308,7 @@ const paginationConfig = computed(() => ({
     pageCount: pagination.value.pageCount,
     itemCount: pagination.value.total,
     showSizePicker: true,
-    pageSizes: [15, 20, 30],
+    pageSizes: [15, 20, 30, 50],
     onChange: (page: number) => {
         pagination.value.page = page;
         expressions();
@@ -282,12 +318,69 @@ const paginationConfig = computed(() => ({
         pagination.value.page = 1; // 重置到第一页
         expressions();
     },
-    prefix: () => `Total ${pagination.value.total} items`
+    prefix: (paginationInfo: any) => `Total ${paginationInfo.itemCount} items`
 }));
 
 function handlePageChange(currentPage: number) {
+    console.log('Page changed to:', currentPage);
     if (!loading.value) {
-        expressions()
+        expressions();
+    }
+}
+
+function handlePageCountChange(newPageCount: number) {
+    console.log('Page count changed to:', newPageCount);
+    pagination.value.pageCount = newPageCount;
+}
+
+// 处理筛选器变化
+function handleFilterChange(filters: any) {
+    console.log('Filters changed:', filters);
+
+    // 更新搜索参数中的状态筛选
+    if (filters.status && filters.status.length > 0) {
+        // 如果选择了状态筛选，更新搜索参数
+        // 注意：这里我们使用第一个选中的状态值
+        // 如果需要多选支持，需要修改后端接口
+        searchParams.value.status = filters.status[0] as number;
+    } else {
+        searchParams.value.status = undefined;
+    }
+
+    // 重置到第一页并重新加载数据
+    pagination.value.page = 1;
+    expressions();
+}
+
+// 处理排序变化
+async function handleSorterChange(sorter: any) {
+    console.log('Sorter changed:', sorter);
+
+    if (sorter) {
+        const field = sorter.columnKey as 'status' | 'date';
+
+        // 如果点击的是当前排序列
+        if (sortParams.value.field === field) {
+            // 根据 sorter.order 切换方向
+            if (sorter.order === 'ascend') {
+                sortParams.value.order = 'asc';
+            } else if (sorter.order === 'descend') {
+                sortParams.value.order = 'desc';
+            } else {
+                // 如果 order 是 false，表示取消排序，保持当前状态或设为默认
+                // 通常第一次点击是 descend
+                sortParams.value.order = 'desc';
+            }
+        } else {
+            // 新列，默认降序
+            sortParams.value.field = field;
+            sortParams.value.order = 'desc';
+        }
+
+        console.log('Updated sort params:', sortParams.value);
+
+        pagination.value.page = 1;
+        await expressions();
     }
 }
 
@@ -313,11 +406,24 @@ const expressions = async () => {
             search.t = searchParams.value.t;
         }
 
-        // 构建排序参数
+        // 构建排序参数 - 映射字段名
         const sort: any = {};
+        const fieldMapping: Record<string, string> = {
+            'status': 'status',
+            'date': 'date'
+        };
+
         if (sortParams.value.field) {
-            sort[sortParams.value.field] = sortParams.value.order;
+            const mappedField = fieldMapping[sortParams.value.field] || sortParams.value.field;
+            sort[mappedField] = sortParams.value.order;
         }
+
+        console.log('Fetching with params:', {
+            sort,
+            search,
+            page: currentPage,
+            pageSize: pagination.value.pageSize
+        });
 
         let response = await plugin.storage.DB().getAllExpressionSimple(
             true,  // ignores
@@ -342,6 +448,7 @@ const expressions = async () => {
             return {
                 expr: entry.expression,
                 status: statusMap[entry.status],
+                statusIndex: entry.status, // 添加状态索引用于颜色映射
                 meaning: entry.meaning,
                 tags: entry.tags,
                 noteNum: entry.note_num,
@@ -401,151 +508,134 @@ function handleCheck(rowKeys: DataTableRowKey[]) {
     rowKeysRef.value = rowKeys;
 }
 
-let collumns = reactive<DataTableColumns<Row>>([
+const collumns = computed<DataTableColumns<Row>>(() => [
     // {
     //     type: "selection",
     // },
     {
         type: "expand",
         expandable: (row: Row) => row.noteNum + row.senNum > 0,
-
+        width: 60,
         renderExpand: (row: Row) => {
-            return h("div", "11")
-            // return h(WordMore, {
-            //     word: row.expr,
-            //     key: `word-more-${row.expr}`
-            // });
+            return h(WordMore, {
+                word: row.expr,
+                key: `word-more-${row.expr}`
+            });
         },
     },
     // 表达
     {
         title: "Expr",
         key: "expr",
-        minWidth: "80",
-        sorter: () => {
-            // 自定义排序处理
-            handleSort('expression');
-            return false; // 返回 false 阻止默认排序
+        width: 150,
+        ellipsis: {
+            tooltip: true
         },
-        renderSorterIcon() {
-            if (sortParams.value.field === 'expression') {
-                return sortParams.value.order === 'asc' ? '↑' : '↓';
-            }
-            return '↕';
-        }
     },
     // 含义
     {
         title: "Meaning",
         key: "meaning",
         align: "left",
-        minWidth: 140,
-        sorter: () => {
-            handleSort('meaning');
-            return false;
+        width: 200,
+        ellipsis: {
+            tooltip: true
         },
-        renderSorterIcon() {
-            if (sortParams.value.field === 'meaning') {
-                return sortParams.value.order === 'asc' ? '↑' : '↓';
-            }
-            return '↕';
-        }
     },
     // 标签
     {
         title: "Tags",
         key: "tags",
-        render(row) {
-            return row.tags.map((tag: string) =>
-                h(
-                    NTag,
-                    {
-                        style: {marginRight: "6px"},
-                        type: "info",
-                        size: "small",
-                    },
-                    {default: () => tag}
-                )
-            );
+        width: 150,
+        ellipsis: {
+            tooltip: true
         },
-        filter(value, row) {
-            if (selectedTags.value.length === 0) {
-                return true;
-            }
-            return mode.value === "and"
-                ? selectedTags.value.every((tag) => row.tags.contains(tag))
-                : selectedTags.value.some((tag) => row.tags.contains(tag));
+        render(row) {
+            return h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '4px' } },
+                row.tags.slice(0, 3).map((tag: string) =>
+                    h(
+                        NTag,
+                        {
+                            style: { marginRight: "0" },
+                            type: "info",
+                            size: "small",
+                        },
+                        { default: () => tag }
+                    )
+                ).concat(row.tags.length > 3 ? [
+                    h(NTag, {
+                        size: 'small',
+                        type: 'default'
+                    }, { default: () => `+${row.tags.length - 3}` })
+                ] : [])
+            );
         },
     },
     // 学习状态
     {
         title: "Status",
         key: "status",
-        maxWidth: 100,
-        minWidth: 90,
-        defaultFilterOptionValues: statusMap.slice(1),
-        filterOptions: [
-            {label: t("Ignore"), value: t("Ignore")},
-            {label: t("Learning"), value: t("Learning")},
-            {label: t("Familiar"), value: t("Familiar")},
-            {label: t("Known"), value: t("Known")},
-            {label: t("Learned"), value: t("Learned")},
-        ],
-        filter(value, row) {
-            return row.status === value;
-        },
-        sorter: () => {
-            handleSort('status');
-            return false;
-        },
-        renderSorterIcon() {
-            if (sortParams.value.field === 'status') {
-                return sortParams.value.order === 'asc' ? '↑' : '↓';
-            }
-            return '↕';
+        align: "center",
+        width: 120,
+        filter: true,  // 启用筛选
+        filterOptions: statusMap.map((status, index) => ({
+            label: status,
+            value: index
+        })),
+        filterMode: 'or',  // 多选时使用 OR 逻辑
+        sorter: 'default' as const,  // ✅ 使用默认排序
+        sortOrder: sortParams.value.field === 'status'
+            ? (sortParams.value.order === 'asc' ? 'ascend' : 'descend')
+            : false,
+        render(row) {
+            // 使用 statusIndex 直接映射颜色
+            const color = statusColorMap[row.statusIndex] || '#999';
+            return h(
+                NTag,
+                {
+                    size: 'small',
+                    style: {
+                        backgroundColor: color + '20',
+                        color: color,
+                        border: `1px solid ${color}40`
+                    }
+                },
+                { default: () => row.status }
+            );
         }
     },
     // 修改日期
     {
         title: "Date",
         key: "date",
-        maxWidth: 100,
+        width: 110,
         align: "center",
-        sorter: () => {
-            handleSort('date');
-            return false;
-        },
-        renderSorterIcon() {
-            if (sortParams.value.field === 'date') {
-                return sortParams.value.order === 'asc' ? '↑' : '↓';
-            }
-            return '↕';
-        }
+        sorter: 'default' as const,  // ✅ 使用默认排序
+        sortOrder: sortParams.value.field === 'date'
+            ? (sortParams.value.order === 'asc' ? 'ascend' : 'descend')
+            : false,
     },
     // 操作
     {
         title: "Action",
         key: "action",
-        maxWidth: 100,
+        width: 80,
         align: "center",
         render(row) {
-            return [
-                h(
-                    NButton,
-                    {
-                        type: "info",
-                        size: "small",
-                        strong: true,
-                        secondary: true,
-                        onClick: async () => {
-                            word.value = await plugin.storage.DB()?.getExpression(row.expr)
-                            showWordModal.value = true;
-                        }
-                    },
-                    {default: () => t("Edit")}
-                ),
-
-            ];
+            return h(
+                NButton,
+                {
+                    type: "info",
+                    size: "small",
+                    strong: true,
+                    secondary: true,
+                    onClick: async () => {
+                        word.value = await plugin.storage.DB()?.getExpression(row.expr)
+                        showWordModal.value = true;
+                    }
+                },
+                {default: () => t("Edit")}
+            );
         },
     },
 ]);
@@ -560,12 +650,38 @@ let collumns = reactive<DataTableColumns<Row>>([
     }
 
     .n-data-table-filter {
-        width: 19px;
+        width: 24px;
     }
 
     .n-data-table-th--filterable {
-        width: 19px;
+        width: 24px;
+    }
 
+    // 排序图标样式
+    .n-data-table-th__sorter {
+        font-size: 14px;
+        font-weight: bold;
+    }
+
+    // 表格行间距
+    .n-data-table-td {
+        padding: 8px 12px;
+    }
+
+    // 表格内容不换行
+    .n-data-table-td {
+        white-space: nowrap;
+    }
+
+    // 表头固定样式
+    .n-data-table-th {
+        white-space: nowrap;
+        font-weight: 600;
+    }
+
+    // 确保表格宽度自适应
+    .n-data-table {
+        width: 100%;
     }
 
     .n-data-table__pagination {

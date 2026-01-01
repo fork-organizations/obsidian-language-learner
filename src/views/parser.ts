@@ -113,9 +113,17 @@ export class TextParser {
     // Plugin：在retextEnglish基础上，把AST上一些单词包裹成短语
     addPhrases() {
         const selfThis = this;
-        return function (option = {}) {
-            const proto = this.Parser.prototype;
-            proto.useFirst("tokenizeParagraph", selfThis.phraseModifier);
+        return function (this: any, options = {}) {
+            // 使用 AST 转换器而不是修改 Parser
+            return (tree: Root, file: any, next: any) => {
+                try {
+                    // 应用短语修饰符到整个树
+                    const modified = selfThis.phraseModifier(tree);
+                    next(null, modified);
+                } catch (err) {
+                    next(err);
+                }
+            };
         };
     }
 

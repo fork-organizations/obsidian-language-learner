@@ -23,7 +23,7 @@ export class StorageProvider {
         return this.useConnect;
     }
 
-    public drive(drive: string): StorageDrive {
+    public async drive(drive: string): Promise<StorageDrive> {
         this.destroyed();
 
         this.useConnect = this.register(drive);
@@ -31,7 +31,7 @@ export class StorageProvider {
         console.log(this.useConnect, drive, 'this.useConnect')
 
         this.useConnectKey = drive;
-        this.useConnect.open();
+        await this.useConnect.open();
 
         return this.useConnect;
     }
@@ -49,8 +49,8 @@ export class StorageProvider {
         this.reRegister(plugin.settings.storage.storage_type);
     }
 
-    public reRegister(drive: string): StorageDrive {
-        return this.drive(drive);
+    public async reRegister(drive: string): Promise<StorageDrive> {
+        return await this.drive(drive);
     }
 
     private register(drive: string): StorageDrive {

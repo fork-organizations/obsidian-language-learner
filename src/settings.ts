@@ -290,7 +290,7 @@ export class SettingTab extends PluginSettingTab {
             .addButton(button => button
                 .setButtonText(t("Reopen"))
                 .onClick(async () => {
-                    this.plugin.storage.reRegister(this.plugin.settings.storage.storage_type)
+                    await this.plugin.storage.reRegister(this.plugin.settings.storage.storage_type);
                     new Notice("DB is Reopened");
                 })
             );
@@ -464,7 +464,7 @@ export class SettingTab extends PluginSettingTab {
                         async () => {
                             this.plugin.storage.DB().destroyAll();
                             this.plugin.storage.destroyed();
-                            this.plugin.storage.syncSetting(this.plugin).drive(this.plugin.settings.storage.storage_type);
+                            await this.plugin.storage.syncSetting(this.plugin).drive(this.plugin.settings.storage.storage_type);
 
                             new Notice("已清空");
                         });

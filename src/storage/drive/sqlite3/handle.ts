@@ -13,9 +13,9 @@ import {
 
 import Plugin from "@/plugin";
 import path from "path";
-import initSqlJs, {Database, SqlJsStatic} from "sql.js";
+import initSqlJs, {Database, SqlJsStatic, SqlJsConfig} from "sql.js";
 import fs from "fs";
-import {moment} from "obsidian";
+import {FileSystemAdapter, moment, normalizePath} from "obsidian";
 import {ConnectionsTable, ExpressionsTable, NotesTable, SentencesTable, Tables, TagsTable} from "@/storage/drive/types";
 import {
     connectionsTableTransform,
@@ -44,8 +44,7 @@ export class Sqlite3StorageDrive extends StorageDrive {
 
     constructor(plugin: Plugin) {
         super();
-        // todo 待优化不确定目前是否有更好的获取当前根目录方法
-        this.basePath = (app.vault.adapter as any).getBasePath();
+        this.basePath = normalizePath((plugin.app.vault.adapter as FileSystemAdapter).getBasePath());
 
         this.plugin = plugin;
         this.storageName = plugin.settings.storage.storage_name;
@@ -79,10 +78,10 @@ export class Sqlite3StorageDrive extends StorageDrive {
 
         console.log(wasmPath, 'wasmPath')
 
-        const config: any = {};
+        const config: SqlJsConfig = {};
         if (fs.existsSync(wasmPath)) {
             try {
-                config.wasmBinary = fs.readFileSync(wasmPath);
+                config.wasmBinary = fs.readFileSync(wasmPath).buffer;
             } catch (err) {
                 console.error("Failed to read WASM file:", err);
             }
@@ -192,9 +191,8 @@ export class Sqlite3StorageDrive extends StorageDrive {
         this.exportDbToFile();
     }
 
-    open(): Promise<void> {
-        this.init();
-        return null;
+    async open(): Promise<void> {
+        await this.init();
     }
 
     close(): void {
@@ -720,7 +718,11 @@ export class Sqlite3StorageDrive extends StorageDrive {
         }
 
         // 存储
-        Promise.all(promises).finally(() => this.exportDbToFile());
+        Promise.all(promises).finally(() => {
+            if (promises.length > 0) {
+                this.exportDbToFile();
+            }
+        });
     }
 
     async removeExpression(expression: string): Promise<boolean> {

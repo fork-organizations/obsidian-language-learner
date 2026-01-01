@@ -23,7 +23,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted, getCurrentInstance } from "vue";
+import { ref, computed, watch, onMounted, onUnmounted, getCurrentInstance, markRaw } from "vue";
 import { NConfigProvider, NButton, NButtonGroup, NInput, darkTheme, GlobalThemeOverrides } from "naive-ui";
 
 import DictItem from "./DictItem.vue";
@@ -58,7 +58,7 @@ watch(() => plugin.store.dictsChange, () => {
         return {
             id: dict.id,
             name: dict.name,
-            type: dicts[dict.id].Cp,
+            type: markRaw(dicts[dict.id].Cp),
         };
     });
     collection.forEach((v, i) => {

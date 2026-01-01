@@ -2,7 +2,8 @@
   <div>
     <NConfigProvider :theme="theme" :theme-overrides="themeOverrides">
       <NModal
-        v-model:show="props.show"
+        :show="props.show"
+        @update:show="handleShowChange"
         :mask-closable="false"
         preset="dialog"
         :title="t('Learning New Words')"
@@ -54,6 +55,11 @@ const props = defineProps({
 });
 
 const { model, themeOverrides, plugin, submit: submitForm } = useLearn();
+
+// 处理模态框显示状态变化
+const handleShowChange = (value: boolean) => {
+    emit("onChangeShow", value);
+};
 
 watch(
   () => props.show,

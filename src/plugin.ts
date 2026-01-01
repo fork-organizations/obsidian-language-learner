@@ -1,5 +1,5 @@
 import {
-    Editor,
+    Editor, FileSystemAdapter,
     MarkdownView,
     Menu,
     normalizePath,
@@ -18,7 +18,7 @@ import {READING_ICON, READING_VIEW_TYPE, ReadingView} from "./views/ReadingView"
 import {LEARN_ICON, LEARN_PANEL_VIEW, LearnPanelView} from "./views/LearnPanelView";
 import {STAT_ICON, STAT_VIEW_TYPE, StatView} from "./views/StatView";
 import {DATA_ICON, DATA_PANEL_VIEW, DataPanelView} from "./views/DataPanelView";
-import {PDF_FILE_EXTENSION, PDFView, VIEW_TYPE_PDF} from "./views/PDFView";
+// import {PDF_FILE_EXTENSION, PDFView, VIEW_TYPE_PDF} from "./views/PDFView";
 
 import {t} from "./lang/helper";
 import {TextParser} from "./views/parser";
@@ -64,7 +64,7 @@ export default class LanguageLearner extends Plugin {
         // await this.db.open();
 
         this.storage = new StorageProvider(this);
-        this.storage.drive(this.settings.storage.storage_type)
+        await this.storage.drive(this.settings.storage.storage_type);
 
         // 设置解析器
         this.parser = new TextParser(this);
@@ -127,7 +127,7 @@ export default class LanguageLearner extends Plugin {
 
     registerConstants() {
         this.constants = {
-            basePath: normalizePath((this.app.vault.adapter as any).basePath),
+            basePath: normalizePath((this.app.vault.adapter as FileSystemAdapter).getBasePath()),
             platform: Platform.isMobile ? "mobile" : "desktop",
         };
     }
@@ -186,7 +186,7 @@ export default class LanguageLearner extends Plugin {
             id: "langr-search-word-select",
             name: t("Translate Select"),
             callback: () => {
-                let selection = window.getSelection().toString().trim();
+                const selection = window.getSelection().toString().trim();
                 this.queryWord(selection);
             },
         });
@@ -275,7 +275,7 @@ export default class LanguageLearner extends Plugin {
             return;
         }
 
-        let dataBase = this.app.vault.getAbstractFileByPath(
+        const dataBase = this.app.vault.getAbstractFileByPath(
             this.settings.word_database
         );
         if (!dataBase || dataBase.hasOwnProperty("children")) {
@@ -288,7 +288,7 @@ export default class LanguageLearner extends Plugin {
 
         const classified: number[][] = Array(5)
             .fill(0)
-            .map((_) => []);
+            .map(_ => []);
         words.forEach((word: ExpressionInfoSimple, i: number) => {
             classified[word.status].push(i);
         });
@@ -396,14 +396,13 @@ export default class LanguageLearner extends Plugin {
 
     // 在MardownView的扩展菜单加一个转为Reading模式的选项
     registerReadingToggle = () => {
-        const pluginSelf = this;
-        pluginSelf.register(
+        this.register(
             around(MarkdownView.prototype, {
                 onPaneMenu(next) {
                     return function (m: Menu) {
                         const file = this.file;
                         const cache = file.cache
-                            ? pluginSelf.app.metadataCache.getFileCache(file)
+                            ? this.app.metadataCache.getFileCache(file)
                             : null;
 
                         if (!file ||
@@ -417,7 +416,7 @@ export default class LanguageLearner extends Plugin {
                             item.setTitle(t("Open as Reading View"))
                                 .setIcon(READING_ICON)
                                 .onClick(() => {
-                                    pluginSelf.setReadingView(this.leaf);
+                                    this.setReadingView(this.leaf);
                                 });
                         });
 
@@ -428,27 +427,32 @@ export default class LanguageLearner extends Plugin {
         );
 
         // 增加标题栏切换阅读模式和mardown模式的按钮
-        pluginSelf.register(
+        const self = this; // eslint-disable-line @typescript-eslint/no-this-alias
+        this.register(
             around(WorkspaceLeaf.prototype, {
                 setViewState(next) {
                     return function (state: ViewState, ...rest: any[]): Promise<void> {
                         return (next.apply(this, [state, ...rest]) as Promise<void>).then(() => {
-                            if (state.type === "markdown" && state.state?.file) {
-                                const cache = pluginSelf.app.metadataCache
+                            // 只在 MarkdownView 类型的 leaf 上执行
+                            if (state.type === "markdown" && state.state?.file && this.view instanceof MarkdownView) {
+                                const cache = this.app.metadataCache
                                     .getCache(state.state.file);
                                 if (cache?.frontmatter && cache.frontmatter[FRONT_MATTER_KEY]) {
-                                    if (!pluginSelf.markdownButtons["reading"]) {
+                                    if (!this.markdownButtons) {
+                                        this.markdownButtons = {};
+                                    }
+                                    if (!this.markdownButtons["reading"]) {
                                         // 在软件初始化的时候，view上面可能没有 addAction 这个方法
                                         setTimeout(() => {
-                                            pluginSelf.markdownButtons["reading"] =
+                                            this.markdownButtons["reading"] =
                                                 (this.view as MarkdownView).addAction(
                                                     "view",
                                                     t("Open as Reading View"),
                                                     () => {
-                                                        pluginSelf.setReadingView(this);
+                                                        self.setReadingView(this);
                                                     }
                                                 );
-                                            pluginSelf.markdownButtons["reading"].addClass("change-to-reading");
+                                            this.markdownButtons["reading"].addClass("change-to-reading");
 
                                         })
                                     }
@@ -456,11 +460,14 @@ export default class LanguageLearner extends Plugin {
                                     (this.view.actionsEl as HTMLElement)
                                         ?.querySelectorAll(".change-to-reading")
                                         .forEach(el => el.remove());
-                                    // pluginSelf.markdownButtons["reading"]?.remove();
-                                    pluginSelf.markdownButtons["reading"] = null;
+                                    if (this.markdownButtons) {
+                                        this.markdownButtons["reading"] = null;
+                                    }
                                 }
                             } else {
-                                pluginSelf.markdownButtons["reading"] = null;
+                                if (this.markdownButtons) {
+                                    this.markdownButtons["reading"] = null;
+                                }
                             }
                         });
                     };
@@ -485,8 +492,8 @@ export default class LanguageLearner extends Plugin {
         }));
 
         if (this.settings.auto_pron) {
-            let accent = this.settings.review_prons;
-            let wordUrl =
+            const accent = this.settings.review_prons;
+            const wordUrl =
                 `http://dict.youdao.com/dictvoice?type=${accent}&audio=` +
                 encodeURIComponent(word);
             playAudio(wordUrl);
@@ -509,7 +516,7 @@ export default class LanguageLearner extends Plugin {
             this.app.workspace.on(
                 "editor-menu",
                 (menu: Menu, editor: Editor, view: MarkdownView) => {
-                    let selection = editor.getSelection();
+                    const selection = editor.getSelection();
                     if (selection || selection.trim().length === selection.length) {
                         addMemu(menu, selection);
                     }
@@ -523,7 +530,7 @@ export default class LanguageLearner extends Plugin {
                 if (!selection) return;
 
                 evt.preventDefault();
-                let menu = new Menu();
+                const menu = new Menu();
 
                 addMemu(menu, selection);
 
@@ -543,7 +550,7 @@ export default class LanguageLearner extends Plugin {
                     && !(this.store.searchPinned && !target.matchParent("#langr-search,#langr-learn-panel"))
                 ) return;
 
-                let selection = window.getSelection().toString().trim();
+                const selection = window.getSelection().toString().trim();
                 if (!selection) return;
 
                 evt.stopImmediatePropagation();
@@ -556,14 +563,14 @@ export default class LanguageLearner extends Plugin {
     // 管理所有的鼠标左击
     registerLeftClick() {
         this.registerDomEvent(document.body, "click", (evt) => {
-            let target = evt.target as HTMLElement;
+            const target = evt.target as HTMLElement;
             if (
                 target.tagName === "H4" &&
                 target.matchParent(".sr-modal-content")
             ) {
-                let word = target.textContent;
-                let accent = this.settings.review_prons;
-                let wordUrl =
+                const word = target.textContent;
+                const accent = this.settings.review_prons;
+                const wordUrl =
                     `http://dict.youdao.com/dictvoice?type=${accent}&audio=` +
                     encodeURIComponent(word);
                 playAudio(wordUrl);
@@ -572,13 +579,13 @@ export default class LanguageLearner extends Plugin {
     }
 
     async loadSettings() {
-        let settings: { [K in string]: any } = Object.assign(
+        const settings: { [K in string]: any } = Object.assign(
             {},
             DEFAULT_SETTINGS
         );
-        let data = (await this.loadData()) || {};
-        for (let key in DEFAULT_SETTINGS) {
-            let k = key as keyof typeof DEFAULT_SETTINGS;
+        const data = (await this.loadData()) || {};
+        for (const key in DEFAULT_SETTINGS) {
+            const k = key as keyof typeof DEFAULT_SETTINGS;
             if (data[k] === undefined) {
                 continue;
             }
