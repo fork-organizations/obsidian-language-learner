@@ -29,7 +29,7 @@ jobs:
           npm install
           npm run build
           mkdir ${{ env.PLUGIN_NAME }}
-          cp main.js manifest.json styles.css ${{ env.PLUGIN_NAME }}
+          cp main.js manifest.json styles.css sql-wasm.wasm ${{ env.PLUGIN_NAME }}
           zip -r ${{ env.PLUGIN_NAME }}.zip ${{ env.PLUGIN_NAME }}
           ls
           echo "::set-output name=tag_name::$(git tag --sort version:refname | tail -n 1)"
@@ -84,3 +84,15 @@ jobs:
           asset_path: ./styles.css
           asset_name: styles.css
           asset_content_type: text/css
+      - name: Upload sql-wasm.wasm
+        id: upload-wasm
+        uses: actions/upload-release-asset@v1
+        env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+            upload_url: ${{ steps.create_release.outputs.upload_url }}
+            asset_path: ./sql-wasm.wasm
+            asset_name: sql-wasm.wasm
+            asset_content_type: application/wasm
+
+
