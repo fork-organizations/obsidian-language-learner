@@ -34,7 +34,6 @@ export class TextParser {
     }
 
     async countWords(text: string): Promise<[number, number, number]> {
-        console.log('countWords', text)
         const ast = this.processor.parse(text);
         const wordSet: Set<string> = new Set();
         visit(ast, "WordNode", (word) => {
@@ -46,7 +45,6 @@ export class TextParser {
             article: "",
             words: [...wordSet],
         });
-        console.log('countWords', wordSet, stored)
         let ignore = 0;
         stored.words.forEach((word) => {
             if (word.status === 0) ignore++;

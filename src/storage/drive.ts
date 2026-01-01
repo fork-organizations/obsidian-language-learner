@@ -3,6 +3,18 @@ import {
     ExpressionInfo, ExpressionInfoSimple, CountInfo, WordCount, ReviewWord
 } from "./interface";
 
+export interface Paginate {
+    pageSize: number, page: number
+}
+
+export interface PaginateResult<T> {
+    data: T, total: number, page: number, pageSize: number
+}
+
+export interface SortParams {
+    [key: string]: any
+}
+
 abstract class StorageDrive {
     abstract open(): Promise<void>;
     abstract close(): void;
@@ -15,7 +27,7 @@ abstract class StorageDrive {
     // 某一时间之后添加的全部单词
     abstract getExpressionAfter(time: string): Promise<ReviewWord[]>;
     // 获取全部单词的简略信息
-    abstract getAllExpressionSimple(ignores?: boolean): Promise<ExpressionInfoSimple[]>;
+    abstract getAllExpressionSimple(ignores?: boolean, search?: SortParams, sort?:SortParams, paginate?: Paginate): Promise<PaginateResult<any>>;
     // 发送单词信息到数据库保存
     abstract postExpression(payload: ExpressionInfo): Promise<number>;
     // 移除单词

@@ -604,34 +604,6 @@
 }
 #langr-learn-panel-modal {
 }
-.word-more h2 {
-  margin: 0.5em 0;
-}
-.word-more .word-notes {
-  user-select: text;
-}
-.word-more .word-notes p {
-  white-space: pre-line;
-  margin: 0.5em 5px;
-}
-.word-more .word-sens {
-  user-select: text;
-}
-.word-more .word-sens .word-sen {
-  margin-bottom: 5px;
-  border: 1px solid gray;
-  border-radius: 5px;
-}
-.word-more .word-sens .word-sen p {
-  margin: 0.5em 5px;
-}
-.word-more .word-sens .word-sen p:first-child {
-  font-style: italic;
-}
-.word-more .word-sens .word-sen p:first-child em {
-  font-weight: bold;
-  color: var(--interactive-accent);
-}
 #langr-data #data-tags {
   display: flex;
 }

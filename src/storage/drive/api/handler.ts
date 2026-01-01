@@ -11,7 +11,7 @@ import {
 } from "@/storage/interface";
 
 import * as console from "console";
-import StorageDrive from "@/storage/drive";
+import StorageDrive, {Paginate, PaginateResult, paginateResult, SortParams} from "@/storage/drive";
 
 
 export class ApiStorageDrive extends StorageDrive {
@@ -125,8 +125,11 @@ export class ApiStorageDrive extends StorageDrive {
 
     // 通过status查询单词/词组,获取简略信息
     async getAllExpressionSimple(
-        ignores?: boolean
-    ): Promise<ExpressionInfoSimple[]> {
+        ignores?: boolean,
+        sort?:SortParams,
+        search?: {[key: string]: never},
+        paginate?: Paginate
+    ): Promise<PaginateResult<ExpressionInfoSimple[]>> {
         let mode = ignores ? "all" : "no_ignore";
 
         let request: RequestUrlParam = {
@@ -138,7 +141,12 @@ export class ApiStorageDrive extends StorageDrive {
         try {
             let response = await requestUrl(request);
 
-            return response.json;
+            return {
+                data: response.json,
+                total: 0,
+                page: 0,
+                pageSize: 0
+            };
         } catch (e) {
             console.warn("Error while getting all simple data from server." + e);
         }

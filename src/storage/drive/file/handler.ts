@@ -19,7 +19,7 @@ import { moment } from "obsidian";
 import path from "path";
 import * as tedb from "tedb";
 import { ExpressionsTable, SentencesTable, Tables } from "../types";
-import StorageDrive from "@/storage/drive";
+import StorageDrive, {Paginate, PaginateResult, SortParams} from "@/storage/drive";
 
 export default class LocalFileStorageDrive extends StorageDrive {
     plugin: Plugin;
@@ -139,8 +139,11 @@ export default class LocalFileStorageDrive extends StorageDrive {
     }
 
     async getAllExpressionSimple(
-        ignores?: boolean
-    ): Promise<ExpressionInfoSimple[]> {
+        ignores?: boolean,
+        sort?:SortParams,
+        search?: {[key: string]: never},
+        paginate?: Paginate
+    ): Promise<PaginateResult<ExpressionInfoSimple[]>> {
         const expressions = (await this.tables
             .get(Tables.EXPRESSION)
             .find({ status: { $gt: ignores ? -1 : 0 } })
@@ -161,7 +164,12 @@ export default class LocalFileStorageDrive extends StorageDrive {
             });
         }
 
-        return res;
+        return {
+            data: res,
+            total: res.length,
+            page: paginate?.page || 0,
+            pageSize: paginate?.pageSize || 100,
+        }
     }
 
     async getCount(): Promise<CountInfo> {

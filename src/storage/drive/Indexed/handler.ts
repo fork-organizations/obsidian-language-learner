@@ -20,7 +20,7 @@ import WordDB from "./idb";
 import Plugin from "@/plugin";
 import Dexie from "dexie";
 import * as console from "console";
-import StorageDrive from "@/storage/drive";
+import StorageDrive, {Paginate, PaginateResult, SortParams} from "@/storage/drive";
 import { ExpressionsTable } from "../types";
 
 export class IndexedStorageDrive extends StorageDrive {
@@ -150,9 +150,14 @@ export class IndexedStorageDrive extends StorageDrive {
         return res;
     }
 
-    async getAllExpressionSimple(ignores?: boolean): Promise<ExpressionInfoSimple[]> {
+    async getAllExpressionSimple(
+        ignores?: boolean,
+        sort?:SortParams,
+        search?: {[key: string]: never},
+        paginate?: Paginate
+    ): Promise<PaginateResult<ExpressionInfoSimple[]>> {
         const bottomStatus = ignores ? -1 : 0;
-        return (await this.idb.expressions
+        const data = (await this.idb.expressions
                 .where("status").above(bottomStatus)
                 .toArray()
         ).map((expr): ExpressionInfoSimple => {
@@ -167,6 +172,13 @@ export class IndexedStorageDrive extends StorageDrive {
                 date: expr.date,
             };
         });
+
+        return {
+            data,
+            total: data.length,
+            page: 0,
+            pageSize: data.length,
+        };
     }
 
     async postExpression(payload: ExpressionInfo): Promise<number> {

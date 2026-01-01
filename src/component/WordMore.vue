@@ -35,7 +35,7 @@ async function load() {
         notes.value = data?.notes || [];
         sentences.value = (data?.sentences || []).map((sen: any) => {
             return {
-                // ...sen,
+                ...sen,
                 sentence: highlight(sen.sentence, props.word)
             };
         });

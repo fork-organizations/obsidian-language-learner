@@ -1,4 +1,4 @@
-import StorageDrive from "@/storage/drive";
+import StorageDrive, {Paginate, PaginateResult, SortParams} from "@/storage/drive";
 import {
     ArticleWords,
     CountInfo,
@@ -286,45 +286,159 @@ export class Sqlite3StorageDrive extends StorageDrive {
         }
     }
 
-    async getAllExpressionSimple(ignores?: boolean): Promise<ExpressionInfoSimple[]> {
+    async getAllExpressionSimple(
+        ignores?: boolean,
+        sort?: SortParams,
+        search?: { [key: string]: any },
+        paginate?: Paginate
+    ): Promise<PaginateResult<ExpressionInfoSimple[]>> {
         const bottomStatus = ignores ? -1 : 0;
+        const pageSize = paginate?.pageSize || 100;
+        const page = paginate?.page || 0; // 接收 0-based 页码
 
-        const exprsResult = this.storageDrive.exec("select * from " + Tables.EXPRESSION + " INDEXED BY status_index where status >= ? order by date desc", [bottomStatus]);
+        // 构建 WHERE 子句
+        const whereConditions: string[] = ["status >= ?"];
+        const whereParams: any[] = [bottomStatus];
+
+        // 处理搜索条件（模糊搜索）
+        if (search && Object.keys(search).length > 0) {
+            for (const [key, value] of Object.entries(search)) {
+                if (value !== undefined && value !== null && value !== '') {
+                    // 支持 expression 和 meaning 字段的模糊搜索
+                    if (key === 'expression' || key === 'meaning') {
+                        whereConditions.push(`${key} LIKE ?`);
+                        whereParams.push(`%${value}%`);
+                    }
+                    // 精确匹配字段（status, t 等）
+                    else if (key === 'status') {
+                        whereConditions.push(`${key} = ?`);
+                        whereParams.push(value);
+                    }
+                    else if (key === 't') {
+                        whereConditions.push(`${key} = ?`);
+                        whereParams.push(value);
+                    }
+                }
+            }
+        }
+
+        const whereClause = whereConditions.join(' AND ');
+
+        // 构建 ORDER BY 子句
+        let orderClause = "date desc"; // 默认排序
+        if (sort && Object.keys(sort).length > 0) {
+            const orderParts: string[] = [];
+            for (const [key, value] of Object.entries(sort)) {
+                // 支持的字段：expression, meaning, status, date
+                if (['expression', 'meaning', 'status', 'date'].includes(key)) {
+                    const orderDirection = value === 'asc' || value === 'ASC' ? 'ASC' : 'DESC';
+                    orderParts.push(`${key} ${orderDirection}`);
+                }
+            }
+            if (orderParts.length > 0) {
+                orderClause = orderParts.join(', ');
+            }
+        }
+
+        // 查询总数
+        const totalSql = `SELECT COUNT(_id) as count FROM ${Tables.EXPRESSION} WHERE ${whereClause}`;
+        const totalResult = this.storageDrive.exec(totalSql, whereParams);
+
+        if (totalResult.length <= 0) {
+            return {
+                data: [],
+                total: 0,
+                page: 1,
+                pageSize: 0
+            };
+        }
+
+        // 查询数据
+        const dataSql = `SELECT * FROM ${Tables.EXPRESSION} WHERE ${whereClause} ORDER BY ${orderClause} LIMIT ? OFFSET ?`;
+        const exprsResult = this.storageDrive.exec(dataSql, [...whereParams, pageSize, page * pageSize]);
+
         if (exprsResult.length <= 0) {
-            return [];
+            return {
+                data: [],
+                total: Number(totalResult[0].values[0][0] || 0),
+                page: page + 1,
+                pageSize
+            };
         }
 
         const exprs = mapSqlResultToTypedArray<ExpressionsTable>(exprsResult[0], expressionsTableTransform);
-        return exprs.map(expr => {
-            const res: ExpressionInfoSimple = {
+
+        // 批量查询所有 expression 的 tags
+        const expressionsList = exprs.map(e => e.expression);
+        const allTagsResult = this.storageDrive.exec(
+            "select * from " + Tables.TAGS + " INDEXED BY tag_expression_index where expression in (" + expressionsList.map(() => "?").join(",") + ")",
+            expressionsList
+        );
+
+        // 构建 expression -> tags 的映射
+        const tagsMap = new Map<string, string[]>();
+        if (allTagsResult.length > 0) {
+            const tags = mapSqlResultToTypedArray<TagsTable>(allTagsResult[0], tagsTableTransform);
+            tags.forEach(tag => {
+                if (!tagsMap.has(tag.expression)) {
+                    tagsMap.set(tag.expression, []);
+                }
+                tagsMap.get(tag.expression).push(tag.tag);
+            });
+        }
+
+        // 批量查询所有 expression 的 note 数量
+        const notesMap = new Map<string, number>();
+        if (expressionsList.length > 0) {
+            const allNotesResult = this.storageDrive.exec(
+                "select expression, count(_id) as count from " + Tables.NOTES + " INDEXED BY note_expression_index where expression in (" + expressionsList.map(() => "?").join(",") + ") group by expression",
+                expressionsList
+            );
+
+            // 构建 expression -> note_num 的映射
+            if (allNotesResult.length > 0 && allNotesResult[0].values.length > 0) {
+                allNotesResult[0].values.forEach((row: any[]) => {
+                    notesMap.set(String(row[0]), Number(row[1] || 0));
+                });
+            }
+        }
+
+        // 批量查询所有 expression 的 sentence 数量
+        const sentencesMap = new Map<string, number>();
+        if (expressionsList.length > 0) {
+            const allSentencesResult = this.storageDrive.exec(
+                "select expression, count(_id) as count from " + Tables.SENTENCE + " INDEXED BY sentence_expression_index where expression in (" + expressionsList.map(() => "?").join(",") + ") group by expression",
+                expressionsList
+            );
+
+            // 构建 expression -> sen_num 的映射
+            if (allSentencesResult.length > 0 && allSentencesResult[0].values.length > 0) {
+                allSentencesResult[0].values.forEach((row: any[]) => {
+                    sentencesMap.set(String(row[0]), Number(row[1] || 0));
+                });
+            }
+        }
+
+        // 组装结果
+        const data = exprs.map(expr => {
+            return {
                 expression: expr.expression,
                 meaning: expr.meaning,
                 status: expr.status,
                 t: expr.t,
-                tags: [],
-                note_num: 0,
-                sen_num: 0,
+                tags: tagsMap.get(expr.expression) || [],
+                note_num: notesMap.get(expr.expression) || 0,
+                sen_num: sentencesMap.get(expr.expression) || 0,
                 date: expr.date
-            };
-
-            const tagsResult = this.storageDrive.exec("select * from " + Tables.TAGS + " INDEXED BY tag_expression_index where expression = ?", [expr.expression]);
-            if (tagsResult.length > 0) {
-                const tags = mapSqlResultToTypedArray<TagsTable>(tagsResult[0], tagsTableTransform);
-                res.tags = tags.map(tag => tag.tag);
-            }
-
-            const noteResult = this.storageDrive.exec("select count(_id) from " + Tables.NOTES + " INDEXED BY note_expression_index where expression = ?", [expr.expression]);
-            if (noteResult.length > 0) {
-                res.note_num = noteResult.length > 0 ? Number(noteResult[0].values[0][0]) : 0;
-            }
-
-            const sentenceResult = this.storageDrive.exec("select count(_id) from " + Tables.SENTENCE + " INDEXED BY sentence_expression_index where expression = ?", [expr.expression]);
-            if (sentenceResult.length > 0) {
-                res.sen_num = sentenceResult.length > 0 ? Number(sentenceResult[0].values[0][0]) : 0;
-            }
-
-            return res
+            } as ExpressionInfoSimple;
         });
+
+        return {
+            data,
+            total: Number(totalResult[0].values[0][0] || 0),
+            pageSize,
+            page: page + 1 // 返回 1-based 页码给前端
+        };
     }
 
     async getCount(): Promise<CountInfo> {
@@ -350,7 +464,6 @@ export class Sqlite3StorageDrive extends StorageDrive {
     async getExpression(keyword: string): Promise<ExpressionInfo> {
         keyword = keyword.toLowerCase();
         const exprsResult = this.storageDrive.exec("select * from " + Tables.EXPRESSION + " INDEXED BY expression_index where expression = ? limit 1", [keyword]);
-        console.log(exprsResult, 'exprsResult')
         if (exprsResult.length <= 0) {
             return null;
         }
@@ -582,16 +695,27 @@ export class Sqlite3StorageDrive extends StorageDrive {
 
     async postIgnoreWords(payload: string[]): Promise<void> {
         const promises: Promise<void>[] = [];
-        const dataSet = new Set(payload.map(word => word.toLowerCase()));
+        const dataSet = new Set(payload.map(word => word.trim().toLowerCase()));
 
-        // 去重复后再添加
-        const expressions: string[] = [...dataSet].map(word => `('${word}', '', 0, ${WordType.WORD})`);
+        // 去重复后再添加，转义单引号避免 SQL 语法错误
+        const expressions: string[] = [...dataSet].map(word => {
+            // 将单引号转义为两个单引号（SQL 标准转义方式）
+            const escapedWord = word.replace(/'/g, "''");
+            return `('${escapedWord}', '', 0, '${WordType.WORD}')`;
+        });
 
         // 触发每批 100 条的添加
         for (let i = 0; i < expressions.length; i += 100) {
             promises.push(new Promise((resolve, reject) => {
-                this.storageDrive.exec(`insert into ${Tables.EXPRESSION} (expression, meaning, status, t) values ${expressions.slice(i, i + 100).join(',')}`)
-                resolve();
+                try {
+                    const batchValues = expressions.slice(i, i + 100).join(',');
+                    this.storageDrive.exec(
+                        `insert into ${Tables.EXPRESSION} (expression, meaning, status, t) values ${batchValues}`
+                    );
+                    resolve();
+                } catch (error) {
+                    reject(error);
+                }
             }));
         }
 
