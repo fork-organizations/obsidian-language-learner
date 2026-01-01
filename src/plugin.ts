@@ -32,7 +32,7 @@ import type {Position} from "./constant";
 import {InputModal} from "./modals"
 
 import Global from "./views/Global.vue";
-import {WordType} from "@/storage/interface";
+import {ExpressionInfoSimple, WordType} from "@/storage/interface";
 import { StorageProvider } from "./storage/provider";
 
 
@@ -283,12 +283,13 @@ export default class LanguageLearner extends Plugin {
             return;
         }
         // 获取所有非无视单词的简略信息
-        let words = await this.storage.DB().getAllExpressionSimple(false);
+        const resp = await this.storage.DB().getAllExpressionSimple(false);
+        const words = resp.data as ExpressionInfoSimple[];
 
-        let classified: number[][] = Array(5)
+        const classified: number[][] = Array(5)
             .fill(0)
             .map((_) => []);
-        words.forEach((word, i) => {
+        words.forEach((word: ExpressionInfoSimple, i: number) => {
             classified[word.status].push(i);
         });
 
@@ -300,10 +301,10 @@ export default class LanguageLearner extends Plugin {
             t("Learned"),
         ];
 
-        let del = this.settings.col_delimiter;
+        const del = this.settings.col_delimiter;
 
         // 正向查询
-        let classified_texts = classified.map((w, idx) => {
+        const classified_texts = classified.map((w, idx) => {
             return (
                 `#### ${statusMap[idx]}\n` +
                 w.map((i) => `${words[i].expression}${del}    ${words[i].meaning}`)
@@ -311,16 +312,16 @@ export default class LanguageLearner extends Plugin {
             );
         });
         classified_texts.shift();
-        let word2Meaning = classified_texts.join("\n");
+        const word2Meaning = classified_texts.join("\n");
 
         // 反向查询
-        let meaning2Word = classified
+        const meaning2Word = classified
             .flat()
             .map((i) => `${words[i].meaning}  ${del}  ${words[i].expression}`)
             .join("\n");
 
-        let text = word2Meaning + "\n\n" + "#### 反向查询\n" + meaning2Word;
-        let db = dataBase as TFile;
+        const text = word2Meaning + "\n\n" + "#### 反向查询\n" + meaning2Word;
+        const db = dataBase as TFile;
         this.app.vault.modify(db, text);
     };
 
@@ -329,7 +330,7 @@ export default class LanguageLearner extends Plugin {
             return;
         }
 
-        let dataBase = this.app.vault.getAbstractFileByPath(
+        const dataBase = this.app.vault.getAbstractFileByPath(
             this.settings.review_database
         );
         if (!dataBase || "children" in dataBase) {
@@ -337,9 +338,9 @@ export default class LanguageLearner extends Plugin {
             return;
         }
 
-        let db = dataBase as TFile;
-        let text = await this.app.vault.read(db);
-        let oldRecord = {} as { [K in string]: string };
+        const db = dataBase as TFile;
+        const text = await this.app.vault.read(db);
+        const oldRecord = {} as { [K in string]: string };
         text.match(/#word(\n.+)+\n(<!--SR.*?-->)/g)
             ?.map((v) => v.match(/#### (.+)[\s\S]+(<!--SR.*-->)/))
             ?.forEach((v) => {
@@ -347,7 +348,7 @@ export default class LanguageLearner extends Plugin {
             });
 
         // let data = await this.db.getExpressionAfter(this.settings.last_sync)
-        let data = await this.storage.DB().getExpressionAfter("1970-01-01T00:00:00Z");
+        const data = await this.storage.DB().getExpressionAfter("1970-01-01T00:00:00Z");
         if (data.length === 0) {
             // new Notice("Nothing new")
             return;
@@ -356,10 +357,10 @@ export default class LanguageLearner extends Plugin {
         data.sort((a, b) => a.expression.localeCompare(b.expression));
 
         let newText = data.map((word) => {
-            let notes = word.notes.length === 0
+            const notes = word.notes.length === 0
                 ? ""
                 : "**Notes**:\n" + word.notes.join("\n").trim() + "\n";
-            let sentences = word.sentences.length === 0
+            const sentences = word.sentences.length === 0
                 ? ""
                 : "**Sentences**:\n" +
                 word.sentences.map((sen) => {

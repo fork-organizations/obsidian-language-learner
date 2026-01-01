@@ -1,7 +1,6 @@
 import Plugin from "@/plugin";
 import StorageDrive from "./drive";
 import { ApiStorageDrive } from './drive/api/handler';
-import LocalFileStorageDrive from './drive/file/handler';
 import { IndexedStorageDrive } from './drive/Indexed/handler';
 import {Sqlite3StorageDrive} from "@/storage/drive/sqlite3/handle";
 
@@ -63,8 +62,6 @@ export class StorageProvider {
                     this.plugin.settings.storage.drive["api"]["use_https"],
                     this.plugin.settings.storage.drive["api"]["api_key"],
                 );
-            case StorageProviderDriveType.LOCAL_FILE:
-                return new LocalFileStorageDrive(this.plugin);
             case StorageProviderDriveType.INDEXED:
                 return new IndexedStorageDrive(this.plugin);
             case StorageProviderDriveType.SQLITE:
@@ -76,6 +73,5 @@ export class StorageProvider {
 export enum StorageProviderDriveType {
     API = 'api',
     INDEXED = 'indexed',
-    LOCAL_FILE = 'local_file',
     SQLITE = 'sqlite',
 }

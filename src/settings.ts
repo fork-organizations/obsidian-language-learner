@@ -7,6 +7,7 @@ import {WarningModal, OpenFileModal} from "./modals"
 import {dicts} from "@dict/list";
 import store from "./store";
 import { StorageProviderDriveType } from "./storage/provider";
+import {ExpressionInfoSimple} from "@/storage/interface";
 
 export interface MyPluginSettings {
     self_server: boolean;
@@ -81,9 +82,6 @@ export const DEFAULT_SETTINGS: MyPluginSettings = {
                 api_key: "",
             },
             "indexed": {
-            },
-            "local_file": {
-                storage_path: "storage",
             },
             "sqlite3":{
                 storage_path: "storage",
@@ -210,7 +208,7 @@ export class SettingTab extends PluginSettingTab {
 
         containerEl.createEl("h4", {text: t("Dictionaries")});
 
-        let createDictSetting = (id: string, name: string, description: string) => {
+        const createDictSetting = (id: string, name: string, description: string) => {
             new Setting(containerEl)
                 .setName(name)
                 .setDesc(description)
@@ -265,7 +263,6 @@ export class SettingTab extends PluginSettingTab {
             .setName(t("Database Type"))
             .addDropdown(funcKey => funcKey
                 .addOption(StorageProviderDriveType.INDEXED, StorageProviderDriveType.INDEXED)
-                .addOption(StorageProviderDriveType.LOCAL_FILE, StorageProviderDriveType.LOCAL_FILE)
                 .addOption(StorageProviderDriveType.API, StorageProviderDriveType.API)
                 .addOption(StorageProviderDriveType.SQLITE, StorageProviderDriveType.SQLITE)
                 .setValue(this.plugin.settings.storage.storage_type)
@@ -300,13 +297,13 @@ export class SettingTab extends PluginSettingTab {
 
 
         // 本地数据库写入类型
-        if (this.plugin.settings.storage.storage_type=== StorageProviderDriveType.LOCAL_FILE) {
+        if (this.plugin.settings.storage.storage_type=== StorageProviderDriveType.SQLITE) {
             new Setting(containerEl)
                 .setName(t("Database Dir"))
                 .addText(text => text
-                    .setValue(this.plugin.settings.storage.drive["local_file"]['storage_path'])
+                    .setValue(this.plugin.settings.storage.drive["sqlite3"]['storage_path'])
                     .onChange(debounce(async (path) => {
-                        this.plugin.settings.storage.drive["local_file"]['storage_path'] = path;
+                        this.plugin.settings.storage.drive["sqlite3"]['storage_path'] = path;
                         this.plugin.storage.sync(this.plugin);
 
                         await this.plugin.saveSettings();
@@ -372,7 +369,7 @@ export class SettingTab extends PluginSettingTab {
                     text
                         .setValue(String(this.plugin.settings.storage.drive["api"].port))
                         .onChange(debounce(async (port) => {
-                            let p = Number(port);
+                            const p = Number(port);
                             if (!isNaN(p) && p >= 1023 && p <= 65535) {
                                 this.plugin.settings.storage.drive["api"].port = p;
                                 this.plugin.storage.sync(this.plugin);
@@ -394,7 +391,7 @@ export class SettingTab extends PluginSettingTab {
             .addButton(button => button
                 .setButtonText(t("Import"))
                 .onClick(async () => {
-                    let modal = new OpenFileModal(this.plugin.app, async (file: File) => {
+                    const modal = new OpenFileModal(this.plugin.app, async (file: File) => {
                         // let fr = new FileReader()
                         // fr.onload = async () => {
                         // let data = JSON.parse(fr.result as string)
@@ -419,16 +416,20 @@ export class SettingTab extends PluginSettingTab {
             .addButton(button => button
                 .setButtonText(t("Export Word"))
                 .onClick(async () => {
-                    let words = await this.plugin.storage.DB().getAllExpressionSimple(true);
-                    let ignores = words.filter(w => (w.status !== 0 && w.t !== "PHRASE")).map(w => w.expression);
+                    const resp = await this.plugin.storage.DB().getAllExpressionSimple(true);
+                    const words = resp.data as ExpressionInfoSimple[];
+
+                    const ignores = words.filter(w => (w.status !== 0 && w.t !== "PHRASE")).map(w => w.expression);
                     await navigator.clipboard.writeText(ignores.join("\n"));
                     new Notice(t("Copied to clipboard"));
                 }))
             .addButton(button => button
                 .setButtonText(t("Export Word and Phrase"))
                 .onClick(async () => {
-                    let words = await this.plugin.storage.DB().getAllExpressionSimple(true);
-                    let ignores = words.filter(w => w.status !== 0).map(w => w.expression);
+                    const resp = await this.plugin.storage.DB().getAllExpressionSimple(true);
+                    const words = resp.data as ExpressionInfoSimple[];
+
+                    const ignores = words.filter(w => w.status !== 0).map(w => w.expression);
                     await navigator.clipboard.writeText(ignores.join("\n"));
                     new Notice(t("Copied to clipboard"));
                 })
@@ -440,8 +441,10 @@ export class SettingTab extends PluginSettingTab {
             .addButton(button => button
                 .setButtonText(t("Export"))
                 .onClick(async () => {
-                    let words = await this.plugin.storage.DB().getAllExpressionSimple(true);
-                    let ignores = words.filter(w => w.status === 0).map(w => w.expression);
+                    const resp = await this.plugin.storage.DB().getAllExpressionSimple(true);
+                    const words = resp.data as ExpressionInfoSimple[];
+
+                    const ignores = words.filter(w => w.status === 0).map(w => w.expression);
                     await navigator.clipboard.writeText(ignores.join("\n"));
                     new Notice(t("Copied to clipboard"));
                 })
@@ -455,7 +458,7 @@ export class SettingTab extends PluginSettingTab {
                 .setButtonText(t("Destroy"))
                 .setWarning()
                 .onClick(async (evt) => {
-                    let modal = new WarningModal(
+                    const modal = new WarningModal(
                         this.app,
                         t("Are you sure you want to destroy your database?"),
                         async () => {
@@ -659,7 +662,7 @@ export class SettingTab extends PluginSettingTab {
                 text
                     .setValue(String(this.plugin.settings.self_port))
                     .onChange(debounce(async (port) => {
-                        let p = Number(port);
+                        const p = Number(port);
                         if (!isNaN(p) && p >= 1023 && p <= 65535) {
                             this.plugin.settings.self_port = p;
                             await this.plugin.saveSettings();

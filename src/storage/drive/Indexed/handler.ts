@@ -18,7 +18,6 @@ import {
 } from "@/storage/interface";
 import WordDB from "./idb";
 import Plugin from "@/plugin";
-import Dexie from "dexie";
 import * as console from "console";
 import StorageDrive, {Paginate, PaginateResult, SortParams} from "@/storage/drive";
 import { ExpressionsTable } from "../types";
@@ -44,19 +43,19 @@ export class IndexedStorageDrive extends StorageDrive {
 
     // 寻找页面中已经记录过的单词和词组
     async getStoredWords(payload: ArticleWords): Promise<WordsPhrase> {
-        let storedPhrases = new Map<string, number>();
+        const storedPhrases = new Map<string, number>();
         await this.idb.expressions
             .where("t").equals("PHRASE")
             .each(expr => storedPhrases.set(expr.expression, expr.status));
 
-        let storedWords = (await this.idb.expressions
+        const storedWords = (await this.idb.expressions
                 .where("expression").anyOf(payload.words)
                 .toArray()
         ).map(expr => {
             return {text: expr.expression, status: expr.status} as Word;
         });
-        let ac = await createAutomaton([...storedPhrases.keys()]);
-        let searchedPhrases = (await ac.search(payload.article)).map(match => {
+        const ac = await createAutomaton([...storedPhrases.keys()]);
+        const searchedPhrases = (await ac.search(payload.article)).map(match => {
             return {text: match[1], status: storedPhrases.get(match[1]), offset: match[0]} as Phrase;
         });
 
@@ -65,14 +64,14 @@ export class IndexedStorageDrive extends StorageDrive {
 
     async getExpression(expression: string): Promise<ExpressionInfo> {
         expression = expression.toLowerCase();
-        let expr = await this.idb.expressions
+        const expr = await this.idb.expressions
             .where("expression").equals(expression).first();
 
         if (!expr) {
             return null;
         }
 
-        let sentences = await this.idb.sentences
+        const sentences = await this.idb.sentences
             .where("id").anyOf(expr.sentences)
             .toArray();
 
@@ -84,6 +83,8 @@ export class IndexedStorageDrive extends StorageDrive {
             notes: expr.notes as string[],
             sentences,
             tags: expr.tags,
+            connections: [],
+            date: expr.date,
         };
 
     }
@@ -91,7 +92,7 @@ export class IndexedStorageDrive extends StorageDrive {
     async getExpressionsSimple(expressions: string[]): Promise<ExpressionInfoSimple[]> {
         expressions = expressions.map(e => e.toLowerCase());
 
-        let exprs = await this.idb.expressions
+        const exprs = await this.idb.expressions
             .where("expression")
             .anyOf(expressions)
             .toArray();
@@ -111,19 +112,19 @@ export class IndexedStorageDrive extends StorageDrive {
     }
 
     async getExpressionAfter(time: string): Promise<ReviewWord[]> {
-        let unixStamp = moment.utc(time).unix();
-        let wordsAfter = await this.idb.expressions
+        const unixStamp = moment.utc(time).unix();
+        const wordsAfter = await this.idb.expressions
             .where("status").above(0)
             .and(expr => expr.date > unixStamp)
             .toArray();
 
-        let res: ReviewWord[] = [];
-        for (let expr of wordsAfter) {
-            let sentences = await this.idb.sentences
+        const res: ReviewWord[] = [];
+        for (const expr of wordsAfter) {
+            const sentences = await this.idb.sentences
                 .where("id").anyOf(expr.sentences)
                 .toArray();
 
-            for (let item of sentences) {
+            for (const item of sentences) {
                 res.push({
                     title: expr.expression,
                     expression: item.sentence.replace(expr.expression, `==${expr.expression}==`),
@@ -152,16 +153,66 @@ export class IndexedStorageDrive extends StorageDrive {
 
     async getAllExpressionSimple(
         ignores?: boolean,
-        sort?:SortParams,
-        search?: {[key: string]: never},
+        sort?: SortParams,
+        search?: { [key: string]: any },
         paginate?: Paginate
     ): Promise<PaginateResult<ExpressionInfoSimple[]>> {
         const bottomStatus = ignores ? -1 : 0;
-        const data = (await this.idb.expressions
-                .where("status").above(bottomStatus)
-                .toArray()
-        ).map((expr): ExpressionInfoSimple => {
-            return {
+        const pageSize = paginate?.pageSize || 100;
+        const page = paginate?.page || 0; // 0-based
+
+        // 构建查询
+        const collection = this.idb.expressions.where("status").above(bottomStatus);
+
+        // 处理搜索条件
+        if (search && Object.keys(search).length > 0) {
+            // 模糊搜索需要在内存中过滤
+            const allData = await collection.toArray();
+
+            const filteredData = allData.filter(expr => {
+                let match = true;
+
+                if (search.expression) {
+                    match = match && expr.expression.toLowerCase().includes(search.expression.toLowerCase());
+                }
+                if (search.meaning && match) {
+                    match = match && expr.meaning.toLowerCase().includes(search.meaning.toLowerCase());
+                }
+                if (search.status !== undefined && match) {
+                    match = match && expr.status === search.status;
+                }
+                if (search.t && match) {
+                    match = match && expr.t === search.t;
+                }
+
+                return match;
+            });
+
+            // 处理排序
+            if (sort && Object.keys(sort).length > 0) {
+                const sortField = Object.keys(sort)[0];
+                const sortOrder = sort[sortField] === 'asc' ? 1 : -1;
+
+                filteredData.sort((a, b) => {
+                    if (sortField === 'expression') {
+                        return sortOrder * a.expression.localeCompare(b.expression);
+                    } else if (sortField === 'meaning') {
+                        return sortOrder * a.meaning.localeCompare(b.meaning);
+                    } else if (sortField === 'status') {
+                        return sortOrder * (a.status - b.status);
+                    } else if (sortField === 'date') {
+                        return sortOrder * (Number(a.date) - Number(b.date));
+                    }
+                    return 0;
+                });
+            }
+
+            // 计算分页
+            const total = filteredData.length;
+            const offset = page * pageSize;
+            const paginatedData = filteredData.slice(offset, offset + pageSize);
+
+            const data = paginatedData.map(expr => ({
                 expression: expr.expression,
                 status: expr.status,
                 meaning: expr.meaning,
@@ -170,43 +221,128 @@ export class IndexedStorageDrive extends StorageDrive {
                 note_num: expr.notes.length,
                 sen_num: expr.sentences.length,
                 date: expr.date,
+            }));
+
+            return {
+                data,
+                total,
+                page: page + 1, // 返回 1-based
+                pageSize
             };
-        });
+        }
+
+        // 没有搜索条件，使用数据库原生查询
+        const totalCount = await collection.count();
+
+        // 处理排序 - 使用 Dexie 的 offset/limit/toArray 后在内存中排序
+        // 因为 Dexie 的 Collection 不支持动态排序，需要先获取数据再排序
+        const pageData = await collection.toArray();
+
+        // 处理排序
+        if (sort && Object.keys(sort).length > 0) {
+            const sortField = Object.keys(sort)[0];
+            const sortOrder = sort[sortField] === 'asc' ? 1 : -1;
+
+            pageData.sort((a, b) => {
+                if (sortField === 'expression') {
+                    return sortOrder * a.expression.localeCompare(b.expression);
+                } else if (sortField === 'meaning') {
+                    return sortOrder * a.meaning.localeCompare(b.meaning);
+                } else if (sortField === 'status') {
+                    return sortOrder * (a.status - b.status);
+                } else if (sortField === 'date') {
+                    return sortOrder * (Number(a.date) - Number(b.date));
+                }
+                return 0;
+            });
+        } else {
+            // 默认按日期降序
+            pageData.sort((a, b) => Number(b.date) - Number(a.date));
+        }
+
+        // 手动分页
+        const offset = page * pageSize;
+        const paginatedData = pageData.slice(offset, offset + pageSize);
+
+        const data = paginatedData.map(expr => ({
+            expression: expr.expression,
+            status: expr.status,
+            meaning: expr.meaning,
+            t: expr.t,
+            tags: expr.tags,
+            note_num: expr.notes.length,
+            sen_num: expr.sentences.length,
+            date: expr.date,
+        }));
 
         return {
             data,
-            total: data.length,
-            page: 0,
-            pageSize: data.length,
+            total: totalCount,
+            page: page + 1, // 返回 1-based
+            pageSize
         };
     }
 
     async postExpression(payload: ExpressionInfo): Promise<number> {
-        let stored = await this.idb.expressions
+        const stored = await this.idb.expressions
             .where("expression").equals(payload.expression)
             .first();
 
-        let sentences = new Set<number>();
-        for (let sen of payload.sentences) {
-            let searched = await this.idb.sentences.where("text").equals(sen.sentence).first();
-            if (searched) {
-                await this.idb.sentences.update(searched._id as number, sen);
-                sentences.add(searched._id as number);
+        const sentenceIds = new Set<number>();
+
+        // 处理句子 - 先检查是否已存在（通过 expression 和 sentence 判断）
+        for (const sen of payload.sentences) {
+            // 尝试查找已存在的句子
+            const existing = await this.idb.sentences
+                .where("sentence").equals(sen.sentence)
+                .and(s => s.expression === payload.expression)
+                .first();
+
+            if (existing) {
+                // 更新已存在的句子
+                await this.idb.sentences.update(existing._id as number, {
+                    sentence: sen.sentence,
+                    trans: sen.trans || '',
+                    origin: sen.origin || '',
+                    date: moment().unix(),
+                });
+                sentenceIds.add(existing._id as number);
             } else {
-                let id = await this.idb.sentences.add(sen);
-                sentences.add(id);
+                // 添加新句子
+                const newSen = {
+                    expression: payload.expression,
+                    sentence: sen.sentence,
+                    trans: sen.trans || '',
+                    origin: sen.origin || '',
+                    date: moment().unix(),
+                };
+                const id = await this.idb.sentences.add(newSen);
+                sentenceIds.add(id);
             }
         }
 
-        let updatedWord = {
+        // 删除不再需要的旧句子
+        if (stored && stored.sentences && stored.sentences.length > 0) {
+            const oldSentenceIds = stored.sentences as number[];
+            const idsToDelete = oldSentenceIds.filter(id => !sentenceIds.has(id));
+
+            if (idsToDelete.length > 0) {
+                await this.idb.sentences
+                    .where("_id")
+                    .anyOf(idsToDelete)
+                    .delete();
+            }
+        }
+
+        const updatedWord = {
             expression: payload.expression,
             meaning: payload.meaning,
             status: payload.status,
             t: payload.t,
-            notes: payload.notes,
-            sentences: [...sentences.values()],
-            tags: [...(new Set<string>(payload.tags).values())],
-            connections: [] as string[],
+            notes: payload.notes || [],
+            sentences: [...sentenceIds.values()],
+            tags: [...new Set<string>(payload.tags || [])],
+            connections: payload.connections || [],
             date: moment().unix(),
         };
 
@@ -220,9 +356,9 @@ export class IndexedStorageDrive extends StorageDrive {
     }
 
     async getTags(): Promise<string[]> {
-        let allTags = new Set<string>();
+        const allTags = new Set<string>();
         await this.idb.expressions.each(expr => {
-            for (let t of expr.tags) {
+            for (const t of expr.tags) {
                 allTags.add(t);
             }
         });
@@ -251,12 +387,12 @@ export class IndexedStorageDrive extends StorageDrive {
     }
 
     async tryGetSen(text: string): Promise<Sentence> {
-        let stored = await this.idb.sentences.where("text").equals(text).first();
+        const stored = await this.idb.sentences.where("text").equals(text).first();
         return stored;
     }
 
     async getCount(): Promise<CountInfo> {
-        let counts: { "WORD": number[], "PHRASE": number[]; } = {
+        const counts: { "WORD": number[], "PHRASE": number[]; } = {
             "WORD": new Array(5).fill(0),
             "PHRASE": new Array(5).fill(0),
         };
@@ -271,22 +407,21 @@ export class IndexedStorageDrive extends StorageDrive {
     }
 
     async countSeven(): Promise<WordCount[]> {
-        let spans: Span[] = [];
-        spans = [0, 1, 2, 3, 4, 5, 6].map((i) => {
-            let start = moment().subtract(6, "days").startOf("day");
-            let from = start.add(i, "days");
+        const spans: Span[] = [0, 1, 2, 3, 4, 5, 6].map((i) => {
+            const start = moment().subtract(6, "days").startOf("day");
+            const from = start.add(i, "days");
             return {
                 from: from.unix(),
                 to: from.endOf("day").unix(),
             };
         });
 
-        let res: WordCount[] = [];
+        const res: WordCount[] = [];
 
         // 对每一天计算
-        for (let span of spans) {
+        for (const span of spans) {
             // 当日
-            let today = new Array(5).fill(0);
+            const today = new Array(5).fill(0);
             await this.idb.expressions.filter(expr => {
                 return expr.t == WordType.WORD &&
                     expr.date >= span.from &&
@@ -295,7 +430,7 @@ export class IndexedStorageDrive extends StorageDrive {
                 today[expr.status]++;
             });
             // 累计
-            let accumulated = new Array(5).fill(0);
+            const accumulated = new Array(5).fill(0);
             await this.idb.expressions.filter(expr => {
                 return expr.t == WordType.WORD &&
                     expr.date <= span.to;
@@ -318,7 +453,7 @@ export class IndexedStorageDrive extends StorageDrive {
     }
 
     async exportDB() {
-        let blob = await exportDB(this.idb);
+        const blob = await exportDB(this.idb);
         try {
             download(blob, `${this.idb.storageName}.json`, "application/json");
         } catch (e) {
@@ -331,10 +466,29 @@ export class IndexedStorageDrive extends StorageDrive {
     }
 
     async removeExpression(expression: string): Promise<boolean> {
-        const state = await this.idb.expressions
-            .where("expression").equals(expression).delete();
+        // 首先获取 expression 对象以获取关联的 sentences IDs
+        const expr = await this.idb.expressions
+            .where("expression").equals(expression)
+            .first();
 
-        return state > 0
+        if (!expr) {
+            return false;
+        }
+
+        // 删除关联的 sentences
+        if (expr.sentences && expr.sentences.length > 0) {
+            await this.idb.sentences
+                .where("_id")
+                .anyOf(expr.sentences as number[])
+                .delete();
+        }
+
+        // 删除 expression
+        const deletedCount = await this.idb.expressions
+            .where("expression").equals(expression)
+            .delete();
+
+        return deletedCount > 0;
     }
 }
 

@@ -11,7 +11,7 @@ import {
 } from "@/storage/interface";
 
 import * as console from "console";
-import StorageDrive, {Paginate, PaginateResult, paginateResult, SortParams} from "@/storage/drive";
+import StorageDrive, {Paginate, PaginateResult, SortParams} from "@/storage/drive";
 
 
 export class ApiStorageDrive extends StorageDrive {
