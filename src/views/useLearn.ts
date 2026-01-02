@@ -140,7 +140,10 @@ export function useLearn() {
         }
 
         const data = JSON.parse(JSON.stringify(model.value)) as ExpressionInfo;
-        data .expression = data.expression.trim().toLowerCase();
+        data.expression = data.expression.trim().toLowerCase();
+        if (!data.connections) {
+            data.connections = [];
+        }
         
         // DB Post
         const statusCode = await plugin.storage.DB().postExpression(data);
@@ -267,6 +270,7 @@ export function useSearchListener(model: any, plugin: Plugin, view: LearnPanelVi
                     t: exprType,
                     tags: [],
                     notes: [],
+                    connections: [],
                     sentences: [],
                 };
                 return;
@@ -279,6 +283,7 @@ export function useSearchListener(model: any, plugin: Plugin, view: LearnPanelVi
                 t: exprType,
                 tags: [],
                 notes: [],
+                connections: [],
                 sentences: storedSen
                     ? [storedSen]
                     : [
@@ -288,7 +293,7 @@ export function useSearchListener(model: any, plugin: Plugin, view: LearnPanelVi
                             origin: defaultOrigin,
                         },
                     ],
-            };
+            } as ExpressionInfo;
         }
     });
 }
