@@ -7,8 +7,8 @@
         "dev": "vite build --watch --mode development",
         "build": "vite build --mode production",
         "build:check": "tsc -noEmit -skipLibCheck && vite build --mode production",
-        "pub": "vite publish.mjs",
-        "version": "vite version-bump.mjs && git add manifest.json versions.json"
+        "pub": "node publish.mjs",
+        "version": "node version-bump.mjs && git add manifest.json versions.json"
     },
     "keywords": [],
     "author": "",
