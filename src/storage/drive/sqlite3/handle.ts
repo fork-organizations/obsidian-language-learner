@@ -73,7 +73,7 @@ export class Sqlite3StorageDrive extends StorageDrive {
         console.log("调试信息 - storageDir:", this.storageDir);
 
         // 创建存储目录路径
-        const dir = normalizePath(this.storageDir + "/one");
+        const dir = normalizePath(this.storageDir);
 
         try {
             if (!(await adapter.exists(dir))) {
