@@ -30,17 +30,13 @@
             </div>
 
             <!-- 加载状态 -->
-            <NSpin :show="loading" class="spin-container">
-                <!-- 错误状态 -->
-                <div v-if="!loading && error" class="empty-state-container">
-                    <NEmpty
-                        :description="error"
-                        size="large"
-                    >
-                        <template #icon>
-                            <span style="font-size: 3em">❌</span>
-                        </template>
-                        <template #extra>
+            <div class="content-container">
+                <NSpin :show="loading">
+                    <!-- 错误状态 -->
+                    <div v-if="!loading && error" class="empty-state">
+                        <div class="empty-icon">❌</div>
+                        <div class="empty-description">{{ error }}</div>
+                        <div class="empty-actions">
                             <NSpace>
                                 <NButton type="primary" @click="retryLoad">
                                     {{ t("Retry") }}
@@ -49,29 +45,24 @@
                                     {{ t("Reset Filters") }}
                                 </NButton>
                             </NSpace>
-                        </template>
-                    </NEmpty>
-                </div>
+                        </div>
+                    </div>
 
-                <!-- 空状态 -->
-                <div v-else-if="!loading && filteredData.length === 0" class="empty-state-container">
-                    <NEmpty
-                        :description="data.length === 0 ? t('No words found. Try adjusting your filters.') : t('No words match the selected tags.')"
-                        size="large"
-                    >
-                        <template #icon>
-                            <span style="font-size: 3em">📚</span>
-                        </template>
-                        <template #extra>
-                            <NButton @click="resetFilters" v-if="hasActiveFilters">
+                    <!-- 空状态 -->
+                    <div v-else-if="!loading && filteredData.length === 0" class="empty-state">
+                        <div class="empty-icon">📚</div>
+                        <div class="empty-description">
+                            {{ data.length === 0 ? t('No words found. Try adjusting your filters.') : t('No words match the selected tags.') }}
+                        </div>
+                        <div class="empty-actions" v-if="hasActiveFilters">
+                            <NButton @click="resetFilters">
                                 {{ t("Reset Filters") }}
                             </NButton>
-                        </template>
-                    </NEmpty>
-                </div>
+                        </div>
+                    </div>
 
-                <!-- 卡片列表视图 -->
-                <div v-else class="card-list-section">
+                    <!-- 卡片列表视图 -->
+                    <div v-else class="card-list-section">
                     <!-- 筛选结果提示 -->
                     <div v-if="filteredData.length !== data.length" class="filter-info">
                         <NText>
@@ -98,6 +89,7 @@
                     </div>
                 </div>
             </NSpin>
+            </div>
         </NConfigProvider>
 
         <LearnPanelModal @onChangeWord="onChangeWord" @on-change-show="onChangeShow" :show="showWordModal" :word="word"/>
@@ -581,19 +573,40 @@ const paginatedData = computed(() => {
         margin-bottom: 16px;
     }
 
-    .spin-container {
+    // 内容容器
+    .content-container {
         min-height: 400px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
     }
 
-    .empty-state-container {
+    // 自定义空状态样式
+    .empty-state {
         display: flex;
-        justify-content: center;
+        flex-direction: column;
         align-items: center;
-        padding: 60px 20px;
-        min-height: 300px;
+        justify-content: center;
+        padding: 80px 20px;
+        text-align: center;
+
+        .empty-icon {
+            font-size: 64px;
+            line-height: 1;
+            margin-bottom: 24px;
+            display: block;
+        }
+
+        .empty-description {
+            font-size: 16px;
+            line-height: 1.6;
+            color: var(--n-text-color-2);
+            margin-bottom: 32px;
+            max-width: 500px;
+        }
+
+        .empty-actions {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+        }
     }
 
     .card-list-section {
