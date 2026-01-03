@@ -30,43 +30,45 @@
             </div>
 
             <!-- 加载状态 -->
-            <NSpin :show="loading">
+            <NSpin :show="loading" class="spin-container">
                 <!-- 错误状态 -->
-                <NEmpty
-                    v-if="!loading && error"
-                    :description="error"
-                    size="large"
-                >
-                    <template #icon>
-                        <span style="font-size: 3em">❌</span>
-                    </template>
-                    <template #extra>
-                        <NSpace>
-                            <NButton type="primary" @click="retryLoad">
-                                {{ t("Retry") }}
-                            </NButton>
-                            <NButton @click="resetFilters">
-                                {{ t("Reset Filters") }}
-                            </NButton>
-                        </NSpace>
-                    </template>
-                </NEmpty>
+                <div v-if="!loading && error" class="empty-state-container">
+                    <NEmpty
+                        :description="error"
+                        size="large"
+                    >
+                        <template #icon>
+                            <span style="font-size: 3em">❌</span>
+                        </template>
+                        <template #extra>
+                            <NSpace>
+                                <NButton type="primary" @click="retryLoad">
+                                    {{ t("Retry") }}
+                                </NButton>
+                                <NButton @click="resetFilters">
+                                    {{ t("Reset Filters") }}
+                                </NButton>
+                            </NSpace>
+                        </template>
+                    </NEmpty>
+                </div>
 
                 <!-- 空状态 -->
-                <NEmpty
-                    v-else-if="!loading && filteredData.length === 0"
-                    :description="data.length === 0 ? t('No words found. Try adjusting your filters.') : t('No words match the selected tags.')"
-                    size="large"
-                >
-                    <template #icon>
-                        <span style="font-size: 3em">📚</span>
-                    </template>
-                    <template #extra>
-                        <NButton @click="resetFilters" v-if="hasActiveFilters">
-                            {{ t("Reset Filters") }}
-                        </NButton>
-                    </template>
-                </NEmpty>
+                <div v-else-if="!loading && filteredData.length === 0" class="empty-state-container">
+                    <NEmpty
+                        :description="data.length === 0 ? t('No words found. Try adjusting your filters.') : t('No words match the selected tags.')"
+                        size="large"
+                    >
+                        <template #icon>
+                            <span style="font-size: 3em">📚</span>
+                        </template>
+                        <template #extra>
+                            <NButton @click="resetFilters" v-if="hasActiveFilters">
+                                {{ t("Reset Filters") }}
+                            </NButton>
+                        </template>
+                    </NEmpty>
+                </div>
 
                 <!-- 卡片列表视图 -->
                 <div v-else class="card-list-section">
@@ -577,6 +579,21 @@ const paginatedData = computed(() => {
     .search-section,
     .tag-section {
         margin-bottom: 16px;
+    }
+
+    .spin-container {
+        min-height: 400px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+
+    .empty-state-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 60px 20px;
+        min-height: 300px;
     }
 
     .card-list-section {
