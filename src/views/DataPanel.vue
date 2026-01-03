@@ -1,13 +1,13 @@
 <template>
-    <div id="langr-data" :class="{ 'mobile': isMobile }">
+    <div id="langr-data">
         <NConfigProvider :theme="theme" :theme-overrides="themeConfig.value">
             <!-- 操作按钮 -->
             <ActionButtons
                 :has-active-filters="hasActiveFilters"
-                :is-mobile="isMobile"
                 @add-word="onAddWord"
                 @refresh="expressions"
                 @reset-filters="resetFilters"
+                @export="handleExport"
             />
 
             <!-- 搜索和筛选面板 -->
@@ -16,7 +16,6 @@
                     v-model="searchParams"
                     :status-options="statusOptions"
                     :type-options="typeOptions"
-                    :is-mobile="isMobile"
                     @search="onSearchChange"
                 />
             </div>
@@ -27,113 +26,181 @@
                     v-model:checked-tags="checkedTags"
                     v-model:mode="mode"
                     :tags="tags"
-                    :is-mobile="isMobile"
                 />
             </div>
 
-            <!-- 移动端卡片视图 -->
-            <div v-if="isMobile" class="mobile-view">
-                <MobileWordList
-                    :data="data"
-                    :is-mobile="isMobile"
-                    @edit="handleEditWord"
-                />
+            <!-- 加载状态 -->
+            <NSpin :show="loading">
+                <!-- 错误状态 -->
+                <NEmpty
+                    v-if="!loading && error"
+                    :description="error"
+                    size="large"
+                >
+                    <template #icon>
+                        <span style="font-size: 3em">❌</span>
+                    </template>
+                    <template #extra>
+                        <NSpace>
+                            <NButton type="primary" @click="retryLoad">
+                                {{ t("Retry") }}
+                            </NButton>
+                            <NButton @click="resetFilters">
+                                {{ t("Reset Filters") }}
+                            </NButton>
+                        </NSpace>
+                    </template>
+                </NEmpty>
 
-                <!-- 移动端分页 -->
-                <div class="mobile-pagination">
-                    <NPagination
-                        v-model:page="pagination.page"
-                        :page-count="pagination.pageCount"
-                        :page-size="pagination.pageSize"
-                        :item-count="pagination.total"
-                        show-size-picker
-                        :page-sizes="[15, 20, 30, 50]"
-                        size="small"
-                        @update:page="handlePageChange"
-                        @update:page-size="handlePageSizeChange"
+                <!-- 空状态 -->
+                <NEmpty
+                    v-else-if="!loading && filteredData.length === 0"
+                    :description="data.length === 0 ? t('No words found. Try adjusting your filters.') : t('No words match the selected tags.')"
+                    size="large"
+                >
+                    <template #icon>
+                        <span style="font-size: 3em">📚</span>
+                    </template>
+                    <template #extra>
+                        <NButton @click="resetFilters" v-if="hasActiveFilters">
+                            {{ t("Reset Filters") }}
+                        </NButton>
+                    </template>
+                </NEmpty>
+
+                <!-- 卡片列表视图 -->
+                <div v-else class="card-list-section">
+                    <!-- 筛选结果提示 -->
+                    <div v-if="filteredData.length !== data.length" class="filter-info">
+                        <NText>
+                            {{ t("Showing {0} of {1} words", filteredData.length, data.length) }}
+                        </NText>
+                    </div>
+
+                    <WordCardList
+                        :data="paginatedData"
+                        @edit="handleEditWord"
                     />
-                </div>
-            </div>
 
-            <!-- 桌面端表格视图 -->
-            <NDataTable
-                v-else
-                ref="table"
-                size="small"
-                :loading="loading"
-                :data="data"
-                :columns="collumns"
-                :remote="true"
-                :row-key="makeRowKey"
-                :scroll-x="1000"
-                @update:checked-row-keys="handleCheck"
-                :pagination="paginationConfig"
-                @update:page="handlePageChange"
-                @update:page-count="handlePageCountChange"
-                @update:filters="handleFilterChange"
-                @update:sorter="handleSorterChange"
-                :single-line="false"
-                :bordered="false"
-                :max-height="600"
-                
-                
-                
-            />
+                    <!-- 分页 -->
+                    <div class="pagination-section">
+                        <NPagination
+                            v-model:page="pagination.page"
+                            :page-size="pagination.pageSize"
+                            :item-count="filteredData.length"
+                            show-size-picker
+                            :page-sizes="[15, 20, 30, 50]"
+                            @update:page="handlePageChange"
+                            @update:page-size="handlePageSizeChange"
+                        />
+                    </div>
+                </div>
+            </NSpin>
         </NConfigProvider>
+
         <LearnPanelModal @onChangeWord="onChangeWord" @on-change-show="onChangeShow" :show="showWordModal" :word="word"/>
     </div>
 </template>
 
 <script setup lang="ts">
-import {moment, Notice, Platform} from "obsidian";
+import {moment, Notice} from "obsidian";
 import {
-    h,
     ref,
-    reactive,
     computed,
     watch,
-    watchEffect,
     getCurrentInstance,
     onMounted,
 } from "vue";
 import {
     NConfigProvider,
-    NDataTable,
-    NTag,
     NButton,
     NPagination,
+    NSpin,
+    NEmpty,
+    NText,
+    NSpace,
     GlobalThemeOverrides,
     darkTheme,
 } from "naive-ui";
 import {t} from "@/lang/helper";
 
-import type {DataTableColumns, DataTableRowKey} from "naive-ui";
 import type PluginType from "@/plugin";
 import LearnPanelModal from "@/views/LearnPanelModal.vue";
-import WordMore from "@comp/WordMore.vue";
 import { StatusColorMap } from "@/statusColors";
 
 // 导入拆分的子组件
 import ActionButtons from "@/component/DataPanel/ActionButtons.vue";
 import SearchFilterPanel from "@/component/DataPanel/SearchFilterPanel.vue";
 import TagFilter from "@/component/DataPanel/TagFilter.vue";
-import MobileWordList from "@/component/DataPanel/MobileWordList.vue";
+import WordCardList from "@/component/DataPanel/WordCardList.vue";
 
 const plugin = getCurrentInstance().appContext.config.globalProperties
     .plugin as PluginType;
 
-// 判断是否为移动端
-const isMobile = computed(() => Platform.isMobileApp);
-
 const themeConfig = computed<GlobalThemeOverrides>(() => ({
-    DataTable: {
-        fontSizeSmall: isMobile.value ? "10px" : "14px",
-        tdPaddingSmall: isMobile.value ? "6px" : "8px",
-        thPaddingSmall: isMobile.value ? "8px" : "12px",
+    // 统一字体大小
+    common: {
+        fontSize: '14px',
     },
 }));
 
 const loading = ref(true);
+const error = ref<string | null>(null);
+const retryCount = ref(0);
+
+// 用户偏好设置的键名
+const PREFS_KEY = 'datapanel-prefs';
+
+// 保存用户偏好
+const savePrefs = () => {
+    const prefs = {
+        pagination: {
+            pageSize: pagination.value.pageSize,
+            page: pagination.value.page
+        },
+        sort: {
+            field: sortParams.value.field,
+            order: sortParams.value.order
+        },
+        search: {
+            expression: searchParams.value.expression,
+            meaning: searchParams.value.meaning,
+            status: searchParams.value.status,
+            t: searchParams.value.t
+        }
+    };
+    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+};
+
+// 加载用户偏好
+const loadPrefs = () => {
+    try {
+        const saved = localStorage.getItem(PREFS_KEY);
+        if (saved) {
+            const prefs = JSON.parse(saved);
+            if (prefs.pagination?.pageSize) {
+                pagination.value.pageSize = prefs.pagination.pageSize;
+            }
+            if (prefs.pagination?.page) {
+                pagination.value.page = prefs.pagination.page;
+            }
+            if (prefs.sort?.field && prefs.sort?.order) {
+                sortParams.value.field = prefs.sort.field;
+                sortParams.value.order = prefs.sort.order;
+            }
+            if (prefs.search) {
+                searchParams.value = {
+                    expression: prefs.search.expression || '',
+                    meaning: prefs.search.meaning || '',
+                    status: prefs.search.status,
+                    t: prefs.search.t
+                };
+            }
+        }
+    } catch (error) {
+        console.error('Failed to load preferences:', error);
+    }
+};
 
 // 切换明亮/黑暗模式
 const theme = computed(() => {
@@ -176,8 +243,6 @@ const typeOptions = [
 ];
 
 const pagination = ref({
-    total: 0,
-    pageCount: 0,
     pageSize: 15,
     page: 1,
 });
@@ -218,7 +283,7 @@ const onAddWord = () => {
     showWordModal.value = true;
 }
 
-// 移动端卡片编辑处理
+// 卡片编辑处理
 const handleEditWord = async (item: Row) => {
     word.value = await plugin.storage.DB()?.getExpression(item.expr);
     showWordModal.value = true;
@@ -240,9 +305,9 @@ const resetFilters = () => {
     expressions();
 }
 
-// 检查是否有激活的筛选条件
+// 检查是否有激活的筛选条件（优化：移除不必要的 !! 转换）
 const hasActiveFilters = computed(() => {
-    return !!(
+    return Boolean(
         searchParams.value.expression ||
         searchParams.value.meaning ||
         searchParams.value.status !== undefined ||
@@ -253,6 +318,7 @@ const hasActiveFilters = computed(() => {
 // 搜索变化处理（防抖已在 SearchFilterPanel 中处理）
 const onSearchChange = () => {
     pagination.value.page = 1; // 重置到第一页
+    savePrefs(); // 保存偏好
     expressions();
 };
 
@@ -272,103 +338,27 @@ const handleSort = async (field: 'status' | 'date') => {
     pagination.value.page = 1;
     console.log('After sort:', sortParams.value);
 
+    savePrefs(); // 保存偏好
+
     // 强制重新加载数据
     await expressions();
 };
 
-// 分页配置
-const paginationConfig = computed(() => ({
-    pageSize: pagination.value.pageSize,
-    page: pagination.value.page,
-    pageCount: pagination.value.pageCount,
-    itemCount: pagination.value.total,
-    showSizePicker: true,
-    pageSizes: [15, 20, 30, 50],
-    onChange: (page: number) => {
-        console.log('[DataPanel] Pagination onChange:', page);
-        pagination.value.page = page;
-        expressions();
-    },
-    onUpdatePageSize: (pageSize: number) => {
-        console.log('[DataPanel] Pagination onUpdatePageSize:', pageSize);
-        pagination.value.pageSize = pageSize;
-        pagination.value.page = 1; // 重置到第一页
-        expressions();
-    },
-    prefix: (paginationInfo: any) => `Total ${paginationInfo.itemCount} items`
-}));
-
 function handlePageChange(currentPage: number) {
     console.log('[DataPanel] Page changed to:', currentPage);
     pagination.value.page = currentPage;
-    expressions();
-}
-
-function handlePageCountChange(newPageCount: number) {
-    console.log('[DataPanel] Page count changed to:', newPageCount);
-    pagination.value.pageCount = newPageCount;
 }
 
 function handlePageSizeChange(pageSize: number) {
     console.log('[DataPanel] Page size changed to:', pageSize);
     pagination.value.pageSize = pageSize;
     pagination.value.page = 1; // 重置到第一页
-    expressions();
-}
-
-// 处理筛选器变化
-function handleFilterChange(filters: any) {
-    console.log('Filters changed:', filters);
-
-    // 更新搜索参数中的状态筛选
-    if (filters.status && filters.status.length > 0) {
-        // 如果选择了状态筛选，更新搜索参数
-        // 注意：这里我们使用第一个选中的状态值
-        // 如果需要多选支持，需要修改后端接口
-        searchParams.value.status = filters.status[0] as number;
-    } else {
-        searchParams.value.status = undefined;
-    }
-
-    // 重置到第一页并重新加载数据
-    pagination.value.page = 1;
-    expressions();
-}
-
-// 处理排序变化
-async function handleSorterChange(sorter: any) {
-    console.log('Sorter changed:', sorter);
-
-    if (sorter) {
-        const field = sorter.columnKey as 'status' | 'date';
-
-        // 如果点击的是当前排序列
-        if (sortParams.value.field === field) {
-            // 根据 sorter.order 切换方向
-            if (sorter.order === 'ascend') {
-                sortParams.value.order = 'asc';
-            } else if (sorter.order === 'descend') {
-                sortParams.value.order = 'desc';
-            } else {
-                // 如果 order 是 false，表示取消排序，保持当前状态或设为默认
-                // 通常第一次点击是 descend
-                sortParams.value.order = 'desc';
-            }
-        } else {
-            // 新列，默认降序
-            sortParams.value.field = field;
-            sortParams.value.order = 'desc';
-        }
-
-        console.log('Updated sort params:', sortParams.value);
-
-        pagination.value.page = 1;
-        await expressions();
-    }
+    savePrefs(); // 保存偏好
 }
 
 const expressions = async () => {
     loading.value = true;
+    error.value = null;
 
     try {
         // 将 page 从 1-based 转换为 0-based（后端使用 0-based）
@@ -405,17 +395,10 @@ const expressions = async () => {
             true,  // ignores
             sort,   // sort
             Object.keys(search).length > 0 ? search : undefined,  // search
-            {
-                pageSize: pagination.value.pageSize,
-                page: currentPage
-            }
+            undefined  // 不传 paginate，获取所有数据
         );
 
-        // 更新分页信息
-        pagination.value.total = response.total;
-        pagination.value.pageCount = Math.ceil(response.total / pagination.value.pageSize);
-
-        // 只显示当前页的数据
+        // 显示所有数据（客户端分页）
         data.value = response.data.map((entry: any): Row => {
             let date = moment(entry.date);
 
@@ -436,378 +419,185 @@ const expressions = async () => {
             tags.value = await plugin.storage.DB().getTags();
             checkedTags.value = Array(tags.value.length).map((_) => false);
         }
-    } catch (error) {
-        console.error("Failed to load expressions:", error);
-        new Notice("Failed to load data");
+    } catch (err) {
+        console.error("Failed to load expressions:", err);
+        error.value = t("Failed to load data. Please try again.");
         data.value = [];
-        pagination.value.total = 0;
-        pagination.value.pageCount = 0;
+        new Notice(t("Failed to load data"));
     } finally {
         loading.value = false;
     }
 }
 
-onMounted(() => { expressions(); });
+// 重试加载数据
+const retryLoad = () => {
+    retryCount.value++;
+    expressions();
+};
+
+// 导出数据
+const handleExport = (format: 'csv' | 'json') => {
+    const dataToExport = filteredData.value;
+
+    if (format === 'csv') {
+        exportToCSV(dataToExport);
+    } else if (format === 'json') {
+        exportToJSON(dataToExport);
+    }
+};
+
+// 导出为 CSV
+const exportToCSV = (data: Row[]) => {
+    if (data.length === 0) {
+        new Notice(t("No data to export"));
+        return;
+    }
+
+    // CSV 头部
+    const headers = ['Expression', 'Meaning', 'Tags', 'Status', 'Date', 'Notes Count', 'Sentences Count'];
+
+    // CSV 数据
+    const csvData = data.map(row => [
+        `"${row.expr}"`,
+        `"${(row.meaning || '').replace(/"/g, '""')}"`,
+        `"${row.tags.join(', ')}"`,
+        `"${row.status}"`,
+        `"${row.date}"`,
+        row.noteNum,
+        row.senNum
+    ]);
+
+    // 组合 CSV
+    const csv = [
+        headers.join(','),
+        ...csvData.map(row => row.join(','))
+    ].join('\n');
+
+    // 创建 Blob 并下载
+    downloadFile(csv, 'word-data.csv', 'text/csv;charset=utf-8;');
+    new Notice(`${t("Words exported successfully")}: ${data.length} ${t("words").toLowerCase()}`);
+};
+
+// 导出为 JSON
+const exportToJSON = (data: Row[]) => {
+    if (data.length === 0) {
+        new Notice(t("No data to export"));
+        return;
+    }
+
+    const jsonData = data.map(row => ({
+        expression: row.expr,
+        meaning: row.meaning,
+        tags: row.tags,
+        status: row.status,
+        statusIndex: row.statusIndex,
+        date: row.date,
+        notesCount: row.noteNum,
+        sentencesCount: row.senNum
+    }));
+
+    const json = JSON.stringify(jsonData, null, 2);
+    downloadFile(json, 'word-data.json', 'application/json;charset=utf-8;');
+    new Notice(`${t("Words exported successfully")}: ${data.length} ${t("words").toLowerCase()}`);
+};
+
+// 下载文件辅助函数
+const downloadFile = (content: string, filename: string, mimeType: string) => {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+};
+
+onMounted(() => {
+    loadPrefs(); // 加载用户偏好
+    expressions();
+});
 
 let data = ref<Row[]>([]);
 
-let table = ref<InstanceType<typeof NDataTable>>(null);
 let mode = ref("and");
 let tags = ref<string[]>([]);
 let checkedTags = ref<boolean[]>([]);
-let selectedTags = ref<string[]>([]);
-watchEffect(() => {
-    if (table.value && tags.value.length > 0) {
-        let selected = tags.value.filter((tag, i) => checkedTags.value[i]);
-        table.value?.filter({
-            tags: selected,
-        });
-        selectedTags.value = selected;
-    }
+
+// 根据标签筛选数据（优化：缓存选中的标签数组）
+const selectedTags = computed(() => {
+    return tags.value.filter((tag, i) => checkedTags.value[i]);
 });
 
-// 搜索框
-let searchText = ref("");
-watch(searchText, (text) => {
-    table.value?.filter({
-        expr: text
+// 根据标签筛选数据
+const filteredData = computed(() => {
+    const currentSelectedTags = selectedTags.value;
+
+    // 如果没有选中标签，返回所有数据（快速路径）
+    if (currentSelectedTags.length === 0) {
+        return data.value;
+    }
+
+    const isAndMode = mode.value === "and";
+
+    // 根据模式筛选
+    return data.value.filter((item) => {
+        const itemTags = item.tags;
+
+        if (isAndMode) {
+            // AND 模式：必须包含所有选中的标签
+            return currentSelectedTags.every(tag => itemTags.includes(tag));
+        } else {
+            // OR 模式：包含任一选中的标签即可
+            return currentSelectedTags.some(tag => itemTags.includes(tag));
+        }
     });
 });
 
-// 选中行
-let rowKeysRef = ref<DataTableRowKey[]>([]);
-let makeRowKey = (row: Row) => row.expr;
+// 监听标签变化，更新分页信息（优化：使用 selectedTags computed）
+watch([selectedTags, mode], () => {
+    console.log('Tags filter changed:', selectedTags.value, 'Mode:', mode.value);
+    // 标签筛选改变时重置到第一页
+    pagination.value.page = 1;
+}, { deep: true });
 
-function handleCheck(rowKeys: DataTableRowKey[]) {
-    rowKeysRef.value = rowKeys;
-}
-
-const collumns = computed<DataTableColumns<Row>>(() => {
-    const mobileColumns = [
-        {
-            type: "expand",
-            expandable: (row: Row) => row.noteNum + row.senNum > 0,
-            width: 50,
-            renderExpand: (row: Row) => {
-                return h(WordMore, {
-                    word: row.expr,
-                    key: `word-more-${row.expr}`
-                });
-            },
-        },
-        // 移动端只显示主要信息
-        {
-            title: "Word",
-            key: "expr",
-            width: 120,
-            ellipsis: {
-                tooltip: true
-            },
-        },
-        {
-            title: "Status",
-            key: "status",
-            align: "center",
-            width: 100,
-            filter: true,
-            filterOptions: statusMap.map((status, index) => ({
-                label: status,
-                value: index
-            })),
-            filterMode: 'or',
-            sorter: 'default' as const,
-            sortOrder: sortParams.value.field === 'status'
-                ? (sortParams.value.order === 'asc' ? 'ascend' : 'descend')
-                : false,
-            render(row) {
-                const colorConfig = StatusColorMap[row.statusIndex];
-                const color = colorConfig?.main || '#999';
-                const bgColor = colorConfig?.bg || `${color}20`;
-                const borderColor = colorConfig?.border || `${color}40`;
-
-                return h(
-                    NTag,
-                    {
-                        size: 'tiny',
-                        style: {
-                            backgroundColor: bgColor,
-                            color: color,
-                            border: `1px solid ${borderColor}`
-                        }
-                    },
-                    { default: () => row.status }
-                );
-            }
-        },
-        {
-            title: "Action",
-            key: "action",
-            width: 70,
-            align: "center",
-            render(row) {
-                return h(
-                    NButton,
-                    {
-                        type: "info",
-                        size: "tiny",
-                        strong: true,
-                        secondary: true,
-                        onClick: async () => {
-                            word.value = await plugin.storage.DB()?.getExpression(row.expr)
-                            showWordModal.value = true;
-                        }
-                    },
-                    {default: () => t("Edit")}
-                );
-            },
-        },
-    ];
-
-    const desktopColumns = [
-        {
-            type: "expand",
-            expandable: (row: Row) => row.noteNum + row.senNum > 0,
-            width: 60,
-            renderExpand: (row: Row) => {
-                return h(WordMore, {
-                    word: row.expr,
-                    key: `word-more-${row.expr}`
-                });
-            },
-        },
-        {
-            title: "Expr",
-            key: "expr",
-            width: 150,
-            ellipsis: {
-                tooltip: true
-            },
-        },
-        {
-            title: "Meaning",
-            key: "meaning",
-            align: "left",
-            width: 200,
-            ellipsis: {
-                tooltip: true
-            },
-        },
-        {
-            title: "Tags",
-            key: "tags",
-            width: 150,
-            ellipsis: {
-                tooltip: true
-            },
-            render(row) {
-                return h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '4px' } },
-                    row.tags.slice(0, 3).map((tag: string) =>
-                        h(
-                            NTag,
-                            {
-                                style: { marginRight: "0" },
-                                type: "info",
-                                size: "small",
-                            },
-                            { default: () => tag }
-                        )
-                    ).concat(row.tags.length > 3 ? [
-                        h(NTag, {
-                            size: 'small',
-                            type: 'default'
-                        }, { default: () => `+${row.tags.length - 3}` })
-                    ] : [])
-                );
-            },
-        },
-        {
-            title: "Status",
-            key: "status",
-            align: "center",
-            width: 120,
-            filter: true,
-            filterOptions: statusMap.map((status, index) => ({
-                label: status,
-                value: index
-            })),
-            filterMode: 'or',
-            sorter: 'default' as const,
-            sortOrder: sortParams.value.field === 'status'
-                ? (sortParams.value.order === 'asc' ? 'ascend' : 'descend')
-                : false,
-            render(row) {
-                const colorConfig = StatusColorMap[row.statusIndex];
-                const color = colorConfig?.main || '#999';
-                const bgColor = colorConfig?.bg || `${color}20`;
-                const borderColor = colorConfig?.border || `${color}40`;
-
-                return h(
-                    NTag,
-                    {
-                        size: 'small',
-                        style: {
-                            backgroundColor: bgColor,
-                            color: color,
-                            border: `1px solid ${borderColor}`
-                        }
-                    },
-                    { default: () => row.status }
-                );
-            }
-        },
-        {
-            title: "Date",
-            key: "date",
-            width: 110,
-            align: "center",
-            sorter: 'default' as const,
-            sortOrder: sortParams.value.field === 'date'
-                ? (sortParams.value.order === 'asc' ? 'ascend' : 'descend')
-                : false,
-        },
-        {
-            title: "Action",
-            key: "action",
-            width: 80,
-            align: "center",
-            render(row) {
-                return h(
-                    NButton,
-                    {
-                        type: "info",
-                        size: "small",
-                        strong: true,
-                        secondary: true,
-                        onClick: async () => {
-                            word.value = await plugin.storage.DB()?.getExpression(row.expr)
-                            showWordModal.value = true;
-                        }
-                    },
-                    {default: () => t("Edit")}
-                );
-            },
-        },
-    ];
-
-    return isMobile.value ? mobileColumns : desktopColumns;
+// 客户端分页：从筛选结果中获取当前页的数据
+const paginatedData = computed(() => {
+    const start = (pagination.value.page - 1) * pagination.value.pageSize;
+    const end = start + pagination.value.pageSize;
+    return filteredData.value.slice(start, end);
 });
-
-
 </script>
 
 <style lang="scss">
 #langr-data {
     padding: 10px;
 
-    // 移动端样式
-    &.mobile {
-        padding: 6px;
-
-        .search-section,
-        .tag-section {
-            margin-bottom: 8px;
-        }
-
-        .mobile-pagination {
-            margin-top: 16px;
-            display: flex;
-            justify-content: center;
-
-            :deep(.n-pagination) {
-                font-size: 12px;
-            }
-        }
-    }
-
-    // 桌面端表格样式
-    .n-data-table {
-        width: 100%;
-    }
-
-    #data-tags {
-        display: flex;
-    }
-
     .search-section,
     .tag-section {
-        margin-bottom: 10px;
+        margin-bottom: 16px;
     }
 
-    .n-data-table-filter {
-        width: 24px;
-    }
+    .card-list-section {
+        margin-top: 16px;
 
-    .n-data-table-th--filterable {
-        width: 24px;
-    }
-
-    // 排序图标样式
-    .n-data-table-th__sorter {
-        font-size: 14px;
-        font-weight: bold;
-
-        .mobile & {
-            font-size: 12px;
+        .filter-info {
+            padding: 8px 12px;
+            background: var(--n-color-modal);
+            border-radius: 4px;
+            margin-bottom: 12px;
+            text-align: center;
+            font-size: 0.9em;
+            color: var(--n-text-color-2);
         }
     }
 
-    // 表格行间距
-    .n-data-table-td {
-        padding: 8px 12px;
-    }
-
-    // 表格内容不换行
-    .n-data-table-td {
-        white-space: nowrap;
-    }
-
-    // 表头固定样式
-    .n-data-table-th {
-        white-space: nowrap;
-        font-weight: 600;
-    }
-
-    // 确保表格宽度自适应
-    .n-data-table {
-        width: 100%;
-    }
-
-    .n-data-table__pagination {
+    .pagination-section {
+        margin-top: 20px;
+        display: flex;
         justify-content: center;
-
-        .mobile & {
-            flex-wrap: wrap;
-            gap: 8px;
-        }
-    }
-
-    .data-more {
-        h2 {
-            margin: 0.5em 0;
-        }
-
-        .data-notes {
-            p {
-                white-space: pre-line;
-                margin: 0.5em 5px;
-            }
-        }
-
-        .data-sens {
-            .data-sen {
-                margin-bottom: 5px;
-                border: 1px solid gray;
-                border-radius: 5px;
-
-                p {
-                    &:first-child {
-                        font-style: italic;
-                    }
-
-                    margin: 0.5em 5px;
-                }
-            }
-        }
+        padding: 16px 0;
     }
 }
 </style>

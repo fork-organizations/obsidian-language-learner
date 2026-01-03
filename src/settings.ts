@@ -3,7 +3,7 @@ import {App, Notice, PluginSettingTab, Setting, debounce} from "obsidian";
 // import Server from "./api/server";
 import LanguageLearner from "./plugin";
 import {t} from "./lang/helper";
-import {WarningModal, OpenFileModal} from "./modals"
+import {WarningModal, OpenFileModal, ImportFormatModal} from "./modals"
 import {dicts} from "@dict/list";
 import store from "./store";
 import { StorageProviderDriveType } from "./storage/provider";
@@ -391,14 +391,14 @@ export class SettingTab extends PluginSettingTab {
             .addButton(button => button
                 .setButtonText(t("Import"))
                 .onClick(async () => {
-                    const modal = new OpenFileModal(this.plugin.app, async (file: File) => {
-                        // let fr = new FileReader()
-                        // fr.onload = async () => {
-                        // let data = JSON.parse(fr.result as string)
-                        await this.plugin.storage.DB().importDB(file);
-                        new Notice("Imported");
-                        // }
-                        // fr.readAsText(file)
+                    const modal = new ImportFormatModal(this.plugin.app, async (format: 'json' | 'csv' | 'sqlite3', file: File) => {
+                        try {
+                            await this.plugin.storage.DB().importDB(file, format);
+                            new Notice(t("Import successful"));
+                        } catch (error) {
+                            new Notice(t("Import failed: {0}", error.message || String(error)));
+                            console.error('Import error:', error);
+                        }
                     });
                     modal.open();
                 })
