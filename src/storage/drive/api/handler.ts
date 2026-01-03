@@ -264,7 +264,7 @@ export class ApiStorageDrive extends StorageDrive {
         }
     }
 
-    async importDB() {
+    async importDB(data: any, format: 'json' | 'csv' | 'sqlite3') {
     }
 
     async exportDB() {

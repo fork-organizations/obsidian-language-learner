@@ -47,7 +47,6 @@ import { t } from "@/lang/helper";
 
 const props = defineProps<{
     audioSource: string;
-    basePath?: string;
     maxRetries?: number; // 最大重试次数
     retryDelay?: number; // 重试延迟(毫秒)
 }>();
@@ -119,11 +118,11 @@ const processedAudioSource = computed(() => {
     }
 
     // 处理 ~/ 开头的相对路径（Obsidian 附件文件夹路径）
-    if (source.startsWith("~/")) {
-        const prefix = Platform.isDesktopApp ? getLocalPrefix() : "http://localhost/_capacitor_file_";
-        const basePath = props.basePath || "";
-        return prefix + basePath + source.slice(1);
-    }
+    // if (source.startsWith("~/")) {
+    //     const prefix = Platform.isDesktopApp ? getLocalPrefix() : "http://localhost/_capacitor_file_";
+    //     const basePath = props.basePath || "";
+    //     return prefix + basePath + source.slice(1);
+    // }
 
     // 处理其他相对路径
     if (Platform.isDesktopApp) {

@@ -1,8 +1,9 @@
 <template>
     <div id="langr-data">
         <NConfigProvider :theme="theme" :theme-overrides="themeConfig.value">
-            <!-- 操作按钮 -->
-            <ActionButtons
+            <NMessageProvider>
+                <!-- 操作按钮 -->
+                <ActionButtons
                 :has-active-filters="hasActiveFilters"
                 @add-word="onAddWord"
                 @refresh="expressions"
@@ -90,6 +91,7 @@
                 </div>
             </NSpin>
             </div>
+            </NMessageProvider>
         </NConfigProvider>
 
         <LearnPanelModal @onChangeWord="onChangeWord" @on-change-show="onChangeShow" :show="showWordModal" :word="word"/>
@@ -115,6 +117,7 @@ import {
     NSpace,
     GlobalThemeOverrides,
     darkTheme,
+    NMessageProvider,
 } from "naive-ui";
 import {t} from "@/lang/helper";
 

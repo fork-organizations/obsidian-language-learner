@@ -53,7 +53,7 @@ export class StorageProvider {
 
     private register(drive: string): StorageDrive {
         switch (drive) {
-            case StorageProviderDriveType.API:
+            // case StorageProviderDriveType.API:
                 // return new ApiStorageDrive(
                 //     this.plugin.settings.storage.drive["api"]["host"],
                 //     this.plugin.settings.storage.drive["api"]["port"],

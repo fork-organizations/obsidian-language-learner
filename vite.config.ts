@@ -86,6 +86,10 @@ export default defineConfig(({ mode }) => {
     const isProd = mode === 'production';
 
     return {
+        define: {
+            // 替换 process.env.NODE_ENV，避免移动端报 "process is not defined" 错误
+            'process.env.NODE_ENV': JSON.stringify(mode),
+        },
         resolve: {
             alias: {
                 '@': resolve(__dirname, 'src'),
@@ -114,8 +118,22 @@ export default defineConfig(({ mode }) => {
             outDir: './',
             emptyOutDir: false,
             sourcemap: false,
-            minify: isProd,
+            minify: isProd ? 'terser' : false,
             target: 'es2016',
+            terserOptions: {
+                compress: {
+                    // 移除 console.*
+                    drop_console: isProd,
+                    // 移除死代码（如 if (false) { ... }）
+                    dead_code: true,
+                    // 移除调试器
+                    drop_debugger: isProd,
+                    // 移除条件判断中的常量
+                    conditionals: true,
+                    // 移除未使用的代码
+                    unused: true,
+                },
+            },
             // 禁用压缩时的静态资源内联
             assetsInlineLimit: 0,
             lib: {

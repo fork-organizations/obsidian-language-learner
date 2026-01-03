@@ -45,7 +45,7 @@ abstract class StorageDrive {
     // 销毁数据库
     abstract destroyAll(): Promise<void>;
     // 导入数据库
-    abstract importDB(data: any): Promise<void>;
+    abstract importDB(data: File, format: 'json' | 'csv' | 'sqlite3'): Promise<void>;
     // 导出数据库
     abstract exportDB(): Promise<void>;
 }

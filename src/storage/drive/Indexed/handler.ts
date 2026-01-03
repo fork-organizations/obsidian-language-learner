@@ -443,12 +443,25 @@ export class IndexedStorageDrive extends StorageDrive {
         return res;
     }
 
-    async importDB(file: File) {
-        await this.idb.delete();
-        await this.idb.open();
-        await importInto(this.idb, file, {
-            acceptNameDiff: true
-        });
+    async importDB(data: File, format: 'json' | 'csv' | 'sqlite3') {
+        if (format === 'sqlite3') {
+            // SQLite3 格式：暂不支持导入到 IndexedDB
+            throw new Error('Importing SQLite3 database to IndexedDB is not supported. Please export your data from the source in JSON format instead.');
+        } else if (format === 'json' || format === 'csv') {
+            // JSON 或 CSV 格式：使用 Dexie 的导入功能（仅支持 IndexedDB 导出的 JSON 格式）
+            if (format === 'csv') {
+                throw new Error('Importing CSV to IndexedDB is not directly supported. Please use JSON format or switch to SQLite3 storage.');
+            }
+
+            // JSON 格式（IndexedDB 导出格式）
+            await this.idb.delete();
+            await this.idb.open();
+            await importInto(this.idb, data, {
+                acceptNameDiff: true
+            });
+        } else {
+            throw new Error(`Unsupported format: ${format}`);
+        }
     }
 
     async exportDB() {

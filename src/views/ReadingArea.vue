@@ -7,7 +7,6 @@
                 <AudioPlayer
                     v-if="audioSource"
                     :audio-source="audioSource"
-                    :base-path="plugin.constants.basePath"
                     @loaded="onAudioLoaded"
                     @error="onAudioError"
                 />
@@ -22,10 +21,10 @@
                         <CountBar v-if="plugin.settings.word_count" :unknown="unknown" :learn="learn"
                             :ignore="ignore" />
                     </div>
-                    <NButton v-if="page * pageSize < totalLines" class="finish-reading" @click="addIgnores" :loading="submitLoading">
+                    <NButton v-if="page * pageSize < totalLines" class="finish-reading" @click="addIgnores" >
                         {{ t("Complete reading and proceed to the next page") }}
                     </NButton>
-                    <NButton v-else class="finish-reading" @click="addIgnores" :loading="submitLoading">
+                    <NButton v-else class="finish-reading" @click="addIgnores" >
                         {{ t("Complete reading") }}
                     </NButton>
                 </div>

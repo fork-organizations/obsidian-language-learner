@@ -1,8 +1,7 @@
 import {
-    Editor, FileSystemAdapter,
+    Editor,
     MarkdownView,
     Menu,
-    normalizePath,
     Notice,
     Platform,
     Plugin,
@@ -39,7 +38,7 @@ import { StorageProvider } from "./storage/provider";
 export const FRONT_MATTER_KEY: string = "langr";
 
 export default class LanguageLearner extends Plugin {
-    constants: { basePath: string; platform: "mobile" | "desktop"; };
+    constants: { platform: "mobile" | "desktop"; };
     settings: MyPluginSettings;
     appEl: HTMLElement;
     vueApp: VueApp;
@@ -114,7 +113,7 @@ export default class LanguageLearner extends Plugin {
         this.app.workspace.detachLeavesOfType(STAT_VIEW_TYPE);
         this.app.workspace.detachLeavesOfType(READING_VIEW_TYPE);
 
-        this.storage.destroyed();
+        this.storage?.destroyed();
         // this.server?.close();
         // if (await app.vault.adapter.exists(".obsidian/plugins/obsidian-language-learner/pdf/web/viewer.html")) {
         //     this.registerExtensions([PDF_FILE_EXTENSION], "pdf");
@@ -127,7 +126,6 @@ export default class LanguageLearner extends Plugin {
 
     registerConstants() {
         this.constants = {
-            basePath: normalizePath((this.app.vault.adapter as FileSystemAdapter).getBasePath()),
             platform: Platform.isMobile ? "mobile" : "desktop",
         };
     }
@@ -502,7 +500,7 @@ export default class LanguageLearner extends Plugin {
 
     // 管理所有的右键菜单
     registerContextMenu() {
-        let addMemu = (mu: Menu, selection: string) => {
+        const addMemu = (mu: Menu, selection: string) => {
             mu.addItem((item) => {
                 item.setTitle(t("Search word"))
                     .setIcon("info")

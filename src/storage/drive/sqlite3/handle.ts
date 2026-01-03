@@ -64,18 +64,18 @@ export class Sqlite3StorageDrive extends StorageDrive {
     }
 
     async init() {
-        const adapter = this.plugin.app.vault.adapter;
         const isMobile = Platform.isMobileApp;
+        const dir = normalizePath(this.storageDir);
 
         console.log(
             `[${isMobile ? "Mobile" : "Desktop"}] 初始化 SQLite3 存储驱动`
         );
-        console.log("调试信息 - storageDir:", this.storageDir);
 
-        // 创建存储目录路径
-        const dir = normalizePath(this.storageDir);
+        const adapter = this.plugin.app.vault.adapter;
+
 
         try {
+            // 创建存储目录路径
             if (!(await adapter.exists(dir))) {
                 await adapter.mkdir(dir);
                 console.log("创建存储目录：", dir);
@@ -271,7 +271,7 @@ export class Sqlite3StorageDrive extends StorageDrive {
     }
 
     close(): void {
-        this.storageDrive.close();
+        this.storageDrive?.close();
         this.sqlJs = null;
     }
 

@@ -412,7 +412,7 @@ export class SettingTab extends PluginSettingTab {
             );
         // 获取所有非无视单词
         new Setting(containerEl)
-            .setName(t("Get all non-ignores"))
+            .setName(t("Export"))
             .addButton(button => button
                 .setButtonText(t("Export Word"))
                 .onClick(async () => {
@@ -437,7 +437,7 @@ export class SettingTab extends PluginSettingTab {
 
         // 获取所有无视单词
         new Setting(containerEl)
-            .setName(t("Get all ignores"))
+            .setName(t("Export Ignores"))
             .addButton(button => button
                 .setButtonText(t("Export"))
                 .onClick(async () => {
