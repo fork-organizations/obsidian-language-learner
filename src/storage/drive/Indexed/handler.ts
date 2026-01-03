@@ -18,7 +18,6 @@ import {
 } from "@/storage/interface";
 import WordDB from "./idb";
 import Plugin from "@/plugin";
-import * as console from "console";
 import StorageDrive, {Paginate, PaginateResult, SortParams} from "@/storage/drive";
 import { ExpressionsTable } from "../types";
 

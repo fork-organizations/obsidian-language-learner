@@ -1,99 +1,70 @@
 <template>
-    <div id="langr-data">
-        <NConfigProvider :theme="theme" :theme-overrides="themeConfig">
-            <NSpace justify="end" style="margin-bottom: 10px;">
-                <NButton @click="onAddWord" strong secondary type="info">
-                    {{ t("Learning New Words") }}
-                </NButton>
-                <NButton @click="expressions" strong secondary type="info">
-                    {{ t("Refresh Word Database") }}
-                </NButton>
-                <NButton @click="resetFilters" strong secondary type="warning" v-if="hasActiveFilters">
-                    Reset Filters
-                </NButton>
-            </NSpace>
+    <div id="langr-data" :class="{ 'mobile': isMobile }">
+        <NConfigProvider :theme="theme" :theme-overrides="themeConfig.value">
+            <!-- 操作按钮 -->
+            <ActionButtons
+                :has-active-filters="hasActiveFilters"
+                :is-mobile="isMobile"
+                @add-word="onAddWord"
+                @refresh="expressions"
+                @reset-filters="resetFilters"
+            />
 
-            <!-- 搜索区域 -->
-            <NSpace vertical style="margin-bottom: 10px;">
-                <NSpace align="center" style="display: grid; grid-template-columns: auto 2fr auto;">
-                    <span style="display: inline-block; width: 80px; font-size: 1.1em; font-weight: bold;">
-                        Word:
-                    </span>
-                    <NInput
-                        size="small"
-                        v-model:value="searchParams.expression"
-                        placeholder="Search by word..."
-                        clearable
-                        @update:value="onSearchChange"
-                    />
-                </NSpace>
-
-                <NSpace align="center" style="display: grid; grid-template-columns: auto 2fr auto;">
-                    <span style="display: inline-block; width: 80px; font-size: 1.1em; font-weight: bold;">
-                        Meaning:
-                    </span>
-                    <NInput
-                        size="small"
-                        v-model:value="searchParams.meaning"
-                        placeholder="Search by meaning..."
-                        clearable
-                        @update:value="onSearchChange"
-                    />
-                </NSpace>
-
-                <NSpace align="center">
-                    <span style="display: inline-block; width: 80px; font-size: 1.1em; font-weight: bold;">
-                        Status:
-                    </span>
-                    <NSelect
-                        v-model:value="searchParams.status"
-                        :options="statusOptions"
-                        size="small"
-                        style="width: 120px;"
-                        clearable
-                        @update:value="onSearchChange"
-                    />
-
-                    <span style="display: inline-block; width: 80px; font-size: 1.1em; font-weight: bold; margin-left: 20px;">
-                        Type:
-                    </span>
-                    <NSelect
-                        v-model:value="searchParams.t"
-                        :options="typeOptions"
-                        size="small"
-                        style="width: 120px;"
-                        clearable
-                        @update:value="onSearchChange"
-                    />
-                </NSpace>
-            </NSpace>
+            <!-- 搜索和筛选面板 -->
+            <div class="search-section">
+                <SearchFilterPanel
+                    v-model="searchParams"
+                    :status-options="statusOptions"
+                    :type-options="typeOptions"
+                    :is-mobile="isMobile"
+                    @search="onSearchChange"
+                />
+            </div>
 
             <!-- 标签筛选 -->
-            <NSpace style="margin: 10px 0;" align="center" v-if="tags.length > 0">
-                <span style="display: inline-block; width: 70px; font-size: 1.1em; font-weight: bold; margin-right: 5px;">
-                    Tags:
-                </span>
-                <NSelect
-                    v-model:value="mode"
-                    :options="[
-                        { label: 'And', value: 'and' },
-                        { label: 'Or', value: 'or' }
-                    ]"
-                    size="small"
-                    style="width: 80px; margin-right: 10px;"
+            <div class="tag-section">
+                <TagFilter
+                    v-model:checked-tags="checkedTags"
+                    v-model:mode="mode"
+                    :tags="tags"
+                    :is-mobile="isMobile"
                 />
-                <NTag v-for="(tag, i) in tags" size="small" checkable v-model:checked="checkedTags[i]" :key="i">
-                    {{ "#" + tag }}
-                </NTag>
-            </NSpace>
+            </div>
+
+            <!-- 移动端卡片视图 -->
+            <div v-if="isMobile" class="mobile-view">
+                <MobileWordList
+                    :data="data"
+                    :is-mobile="isMobile"
+                    @edit="handleEditWord"
+                />
+
+                <!-- 移动端分页 -->
+                <div class="mobile-pagination">
+                    <NPagination
+                        v-model:page="pagination.page"
+                        :page-count="pagination.pageCount"
+                        :page-size="pagination.pageSize"
+                        :item-count="pagination.total"
+                        show-size-picker
+                        :page-sizes="[15, 20, 30, 50]"
+                        size="small"
+                        @update:page="handlePageChange"
+                        @update:page-size="handlePageSizeChange"
+                    />
+                </div>
+            </div>
+
+            <!-- 桌面端表格视图 -->
             <NDataTable
+                v-else
                 ref="table"
                 size="small"
                 :loading="loading"
                 :data="data"
                 :columns="collumns"
-                :row-key="makeRowKey"
                 :remote="true"
+                :row-key="makeRowKey"
                 :scroll-x="1000"
                 @update:checked-row-keys="handleCheck"
                 :pagination="paginationConfig"
@@ -103,6 +74,10 @@
                 @update:sorter="handleSorterChange"
                 :single-line="false"
                 :bordered="false"
+                :max-height="600"
+                
+                
+                
             />
         </NConfigProvider>
         <LearnPanelModal @onChangeWord="onChangeWord" @on-change-show="onChangeShow" :show="showWordModal" :word="word"/>
@@ -110,7 +85,7 @@
 </template>
 
 <script setup lang="ts">
-import {moment, Notice} from "obsidian";
+import {moment, Notice, Platform} from "obsidian";
 import {
     h,
     ref,
@@ -119,18 +94,16 @@ import {
     watch,
     watchEffect,
     getCurrentInstance,
-     onMounted,
+    onMounted,
 } from "vue";
 import {
     NConfigProvider,
     NDataTable,
     NTag,
+    NButton,
+    NPagination,
     GlobalThemeOverrides,
     darkTheme,
-    NSpace,
-    NInput,
-    NButton,
-    NSelect,
 } from "naive-ui";
 import {t} from "@/lang/helper";
 
@@ -138,16 +111,27 @@ import type {DataTableColumns, DataTableRowKey} from "naive-ui";
 import type PluginType from "@/plugin";
 import LearnPanelModal from "@/views/LearnPanelModal.vue";
 import WordMore from "@comp/WordMore.vue";
+import { StatusColorMap } from "@/statusColors";
+
+// 导入拆分的子组件
+import ActionButtons from "@/component/DataPanel/ActionButtons.vue";
+import SearchFilterPanel from "@/component/DataPanel/SearchFilterPanel.vue";
+import TagFilter from "@/component/DataPanel/TagFilter.vue";
+import MobileWordList from "@/component/DataPanel/MobileWordList.vue";
 
 const plugin = getCurrentInstance().appContext.config.globalProperties
     .plugin as PluginType;
 
-const themeConfig: GlobalThemeOverrides = {
+// 判断是否为移动端
+const isMobile = computed(() => Platform.isMobileApp);
+
+const themeConfig = computed<GlobalThemeOverrides>(() => ({
     DataTable: {
-        fontSizeSmall: plugin.constants.platform === "mobile" ? "10px" : "14px",
-        tdPaddingSmall: "8px",
+        fontSizeSmall: isMobile.value ? "10px" : "14px",
+        tdPaddingSmall: isMobile.value ? "6px" : "8px",
+        thPaddingSmall: isMobile.value ? "8px" : "12px",
     },
-};
+}));
 
 const loading = ref(true);
 
@@ -177,15 +161,6 @@ const statusMap = [
     t("Known"),
     t("Learned"),
 ];
-
-// 状态颜色映射
-const statusColorMap: Record<number, string> = {
-    0: '#d1d5db',  // Ignore - 灰色
-    1: '#f59e0b',  // Learning - 橙色
-    2: '#3b82f6',  // Familiar - 蓝色
-    3: '#22c55e',  // Known - 绿色
-    4: '#10b981',  // Learned - 深绿色
-};
 
 // 状态下拉选项
 const statusOptions = computed(() => [
@@ -243,6 +218,12 @@ const onAddWord = () => {
     showWordModal.value = true;
 }
 
+// 移动端卡片编辑处理
+const handleEditWord = async (item: Row) => {
+    word.value = await plugin.storage.DB()?.getExpression(item.expr);
+    showWordModal.value = true;
+};
+
 // 重置搜索和筛选
 const resetFilters = () => {
     searchParams.value = {
@@ -269,16 +250,10 @@ const hasActiveFilters = computed(() => {
     );
 });
 
-// 搜索变化处理（防抖）
-let searchTimeout: NodeJS.Timeout | null = null;
+// 搜索变化处理（防抖已在 SearchFilterPanel 中处理）
 const onSearchChange = () => {
-    if (searchTimeout) {
-        clearTimeout(searchTimeout);
-    }
-    searchTimeout = setTimeout(() => {
-        pagination.value.page = 1; // 重置到第一页
-        expressions();
-    }, 500); // 500ms 防抖
+    pagination.value.page = 1; // 重置到第一页
+    expressions();
 };
 
 // 处理排序
@@ -310,10 +285,12 @@ const paginationConfig = computed(() => ({
     showSizePicker: true,
     pageSizes: [15, 20, 30, 50],
     onChange: (page: number) => {
+        console.log('[DataPanel] Pagination onChange:', page);
         pagination.value.page = page;
         expressions();
     },
     onUpdatePageSize: (pageSize: number) => {
+        console.log('[DataPanel] Pagination onUpdatePageSize:', pageSize);
         pagination.value.pageSize = pageSize;
         pagination.value.page = 1; // 重置到第一页
         expressions();
@@ -322,15 +299,21 @@ const paginationConfig = computed(() => ({
 }));
 
 function handlePageChange(currentPage: number) {
-    console.log('Page changed to:', currentPage);
-    if (!loading.value) {
-        expressions();
-    }
+    console.log('[DataPanel] Page changed to:', currentPage);
+    pagination.value.page = currentPage;
+    expressions();
 }
 
 function handlePageCountChange(newPageCount: number) {
-    console.log('Page count changed to:', newPageCount);
+    console.log('[DataPanel] Page count changed to:', newPageCount);
     pagination.value.pageCount = newPageCount;
+}
+
+function handlePageSizeChange(pageSize: number) {
+    console.log('[DataPanel] Page size changed to:', pageSize);
+    pagination.value.pageSize = pageSize;
+    pagination.value.page = 1; // 重置到第一页
+    expressions();
 }
 
 // 处理筛选器变化
@@ -418,13 +401,6 @@ const expressions = async () => {
             sort[mappedField] = sortParams.value.order;
         }
 
-        console.log('Fetching with params:', {
-            sort,
-            search,
-            page: currentPage,
-            pageSize: pagination.value.pageSize
-        });
-
         let response = await plugin.storage.DB().getAllExpressionSimple(
             true,  // ignores
             sort,   // sort
@@ -434,8 +410,6 @@ const expressions = async () => {
                 page: currentPage
             }
         );
-
-        console.log('Response:', response);
 
         // 更新分页信息
         pagination.value.total = response.total;
@@ -456,8 +430,6 @@ const expressions = async () => {
                 date: date.format("YYYY-MM-DD"),
             };
         });
-
-        console.log('Data loaded:', data.value.length, 'items');
 
         // 只在第一次加载时获取标签
         if (tags.value.length === 0) {
@@ -485,11 +457,13 @@ let tags = ref<string[]>([]);
 let checkedTags = ref<boolean[]>([]);
 let selectedTags = ref<string[]>([]);
 watchEffect(() => {
-    let selected = tags.value.filter((tag, i) => checkedTags.value[i]);
-    table.value?.filter({
-        tags: selected,
-    });
-    selectedTags.value = selected;
+    if (table.value && tags.value.length > 0) {
+        let selected = tags.value.filter((tag, i) => checkedTags.value[i]);
+        table.value?.filter({
+            tags: selected,
+        });
+        selectedTags.value = selected;
+    }
 });
 
 // 搜索框
@@ -508,145 +482,255 @@ function handleCheck(rowKeys: DataTableRowKey[]) {
     rowKeysRef.value = rowKeys;
 }
 
-const collumns = computed<DataTableColumns<Row>>(() => [
-    // {
-    //     type: "selection",
-    // },
-    {
-        type: "expand",
-        expandable: (row: Row) => row.noteNum + row.senNum > 0,
-        width: 60,
-        renderExpand: (row: Row) => {
-            return h(WordMore, {
-                word: row.expr,
-                key: `word-more-${row.expr}`
-            });
+const collumns = computed<DataTableColumns<Row>>(() => {
+    const mobileColumns = [
+        {
+            type: "expand",
+            expandable: (row: Row) => row.noteNum + row.senNum > 0,
+            width: 50,
+            renderExpand: (row: Row) => {
+                return h(WordMore, {
+                    word: row.expr,
+                    key: `word-more-${row.expr}`
+                });
+            },
         },
-    },
-    // 表达
-    {
-        title: "Expr",
-        key: "expr",
-        width: 150,
-        ellipsis: {
-            tooltip: true
+        // 移动端只显示主要信息
+        {
+            title: "Word",
+            key: "expr",
+            width: 120,
+            ellipsis: {
+                tooltip: true
+            },
         },
-    },
-    // 含义
-    {
-        title: "Meaning",
-        key: "meaning",
-        align: "left",
-        width: 200,
-        ellipsis: {
-            tooltip: true
+        {
+            title: "Status",
+            key: "status",
+            align: "center",
+            width: 100,
+            filter: true,
+            filterOptions: statusMap.map((status, index) => ({
+                label: status,
+                value: index
+            })),
+            filterMode: 'or',
+            sorter: 'default' as const,
+            sortOrder: sortParams.value.field === 'status'
+                ? (sortParams.value.order === 'asc' ? 'ascend' : 'descend')
+                : false,
+            render(row) {
+                const colorConfig = StatusColorMap[row.statusIndex];
+                const color = colorConfig?.main || '#999';
+                const bgColor = colorConfig?.bg || `${color}20`;
+                const borderColor = colorConfig?.border || `${color}40`;
+
+                return h(
+                    NTag,
+                    {
+                        size: 'tiny',
+                        style: {
+                            backgroundColor: bgColor,
+                            color: color,
+                            border: `1px solid ${borderColor}`
+                        }
+                    },
+                    { default: () => row.status }
+                );
+            }
         },
-    },
-    // 标签
-    {
-        title: "Tags",
-        key: "tags",
-        width: 150,
-        ellipsis: {
-            tooltip: true
+        {
+            title: "Action",
+            key: "action",
+            width: 70,
+            align: "center",
+            render(row) {
+                return h(
+                    NButton,
+                    {
+                        type: "info",
+                        size: "tiny",
+                        strong: true,
+                        secondary: true,
+                        onClick: async () => {
+                            word.value = await plugin.storage.DB()?.getExpression(row.expr)
+                            showWordModal.value = true;
+                        }
+                    },
+                    {default: () => t("Edit")}
+                );
+            },
         },
-        render(row) {
-            return h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '4px' } },
-                row.tags.slice(0, 3).map((tag: string) =>
-                    h(
-                        NTag,
-                        {
-                            style: { marginRight: "0" },
-                            type: "info",
-                            size: "small",
-                        },
-                        { default: () => tag }
-                    )
-                ).concat(row.tags.length > 3 ? [
-                    h(NTag, {
+    ];
+
+    const desktopColumns = [
+        {
+            type: "expand",
+            expandable: (row: Row) => row.noteNum + row.senNum > 0,
+            width: 60,
+            renderExpand: (row: Row) => {
+                return h(WordMore, {
+                    word: row.expr,
+                    key: `word-more-${row.expr}`
+                });
+            },
+        },
+        {
+            title: "Expr",
+            key: "expr",
+            width: 150,
+            ellipsis: {
+                tooltip: true
+            },
+        },
+        {
+            title: "Meaning",
+            key: "meaning",
+            align: "left",
+            width: 200,
+            ellipsis: {
+                tooltip: true
+            },
+        },
+        {
+            title: "Tags",
+            key: "tags",
+            width: 150,
+            ellipsis: {
+                tooltip: true
+            },
+            render(row) {
+                return h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '4px' } },
+                    row.tags.slice(0, 3).map((tag: string) =>
+                        h(
+                            NTag,
+                            {
+                                style: { marginRight: "0" },
+                                type: "info",
+                                size: "small",
+                            },
+                            { default: () => tag }
+                        )
+                    ).concat(row.tags.length > 3 ? [
+                        h(NTag, {
+                            size: 'small',
+                            type: 'default'
+                        }, { default: () => `+${row.tags.length - 3}` })
+                    ] : [])
+                );
+            },
+        },
+        {
+            title: "Status",
+            key: "status",
+            align: "center",
+            width: 120,
+            filter: true,
+            filterOptions: statusMap.map((status, index) => ({
+                label: status,
+                value: index
+            })),
+            filterMode: 'or',
+            sorter: 'default' as const,
+            sortOrder: sortParams.value.field === 'status'
+                ? (sortParams.value.order === 'asc' ? 'ascend' : 'descend')
+                : false,
+            render(row) {
+                const colorConfig = StatusColorMap[row.statusIndex];
+                const color = colorConfig?.main || '#999';
+                const bgColor = colorConfig?.bg || `${color}20`;
+                const borderColor = colorConfig?.border || `${color}40`;
+
+                return h(
+                    NTag,
+                    {
                         size: 'small',
-                        type: 'default'
-                    }, { default: () => `+${row.tags.length - 3}` })
-                ] : [])
-            );
+                        style: {
+                            backgroundColor: bgColor,
+                            color: color,
+                            border: `1px solid ${borderColor}`
+                        }
+                    },
+                    { default: () => row.status }
+                );
+            }
         },
-    },
-    // 学习状态
-    {
-        title: "Status",
-        key: "status",
-        align: "center",
-        width: 120,
-        filter: true,  // 启用筛选
-        filterOptions: statusMap.map((status, index) => ({
-            label: status,
-            value: index
-        })),
-        filterMode: 'or',  // 多选时使用 OR 逻辑
-        sorter: 'default' as const,  // ✅ 使用默认排序
-        sortOrder: sortParams.value.field === 'status'
-            ? (sortParams.value.order === 'asc' ? 'ascend' : 'descend')
-            : false,
-        render(row) {
-            // 使用 statusIndex 直接映射颜色
-            const color = statusColorMap[row.statusIndex] || '#999';
-            return h(
-                NTag,
-                {
-                    size: 'small',
-                    style: {
-                        backgroundColor: color + '20',
-                        color: color,
-                        border: `1px solid ${color}40`
-                    }
-                },
-                { default: () => row.status }
-            );
-        }
-    },
-    // 修改日期
-    {
-        title: "Date",
-        key: "date",
-        width: 110,
-        align: "center",
-        sorter: 'default' as const,  // ✅ 使用默认排序
-        sortOrder: sortParams.value.field === 'date'
-            ? (sortParams.value.order === 'asc' ? 'ascend' : 'descend')
-            : false,
-    },
-    // 操作
-    {
-        title: "Action",
-        key: "action",
-        width: 80,
-        align: "center",
-        render(row) {
-            return h(
-                NButton,
-                {
-                    type: "info",
-                    size: "small",
-                    strong: true,
-                    secondary: true,
-                    onClick: async () => {
-                        word.value = await plugin.storage.DB()?.getExpression(row.expr)
-                        showWordModal.value = true;
-                    }
-                },
-                {default: () => t("Edit")}
-            );
+        {
+            title: "Date",
+            key: "date",
+            width: 110,
+            align: "center",
+            sorter: 'default' as const,
+            sortOrder: sortParams.value.field === 'date'
+                ? (sortParams.value.order === 'asc' ? 'ascend' : 'descend')
+                : false,
         },
-    },
-]);
+        {
+            title: "Action",
+            key: "action",
+            width: 80,
+            align: "center",
+            render(row) {
+                return h(
+                    NButton,
+                    {
+                        type: "info",
+                        size: "small",
+                        strong: true,
+                        secondary: true,
+                        onClick: async () => {
+                            word.value = await plugin.storage.DB()?.getExpression(row.expr)
+                            showWordModal.value = true;
+                        }
+                    },
+                    {default: () => t("Edit")}
+                );
+            },
+        },
+    ];
+
+    return isMobile.value ? mobileColumns : desktopColumns;
+});
 
 
 </script>
 
 <style lang="scss">
 #langr-data {
+    padding: 10px;
+
+    // 移动端样式
+    &.mobile {
+        padding: 6px;
+
+        .search-section,
+        .tag-section {
+            margin-bottom: 8px;
+        }
+
+        .mobile-pagination {
+            margin-top: 16px;
+            display: flex;
+            justify-content: center;
+
+            :deep(.n-pagination) {
+                font-size: 12px;
+            }
+        }
+    }
+
+    // 桌面端表格样式
+    .n-data-table {
+        width: 100%;
+    }
+
     #data-tags {
         display: flex;
+    }
+
+    .search-section,
+    .tag-section {
+        margin-bottom: 10px;
     }
 
     .n-data-table-filter {
@@ -661,6 +745,10 @@ const collumns = computed<DataTableColumns<Row>>(() => [
     .n-data-table-th__sorter {
         font-size: 14px;
         font-weight: bold;
+
+        .mobile & {
+            font-size: 12px;
+        }
     }
 
     // 表格行间距
@@ -686,6 +774,11 @@ const collumns = computed<DataTableColumns<Row>>(() => [
 
     .n-data-table__pagination {
         justify-content: center;
+
+        .mobile & {
+            flex-wrap: wrap;
+            gap: 8px;
+        }
     }
 
     .data-more {

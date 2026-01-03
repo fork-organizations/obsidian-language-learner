@@ -4,7 +4,13 @@
             style="height: 100%; display: flex; flex-direction: column">
             <!-- 功能区 -->
             <div class="function-area">
-                <audio controls v-if="audioSource" :src="audioSource" />
+                <AudioPlayer
+                    v-if="audioSource"
+                    :audio-source="audioSource"
+                    :base-path="plugin.constants.basePath"
+                    @loaded="onAudioLoaded"
+                    @error="onAudioError"
+                />
                 <div style="display: flex">
                     <button @click="activeNotes = true">{{t("Jot down Notes")}}</button>
                     <div style="
@@ -87,6 +93,7 @@ import { useEvent } from "@/utils/use";
 import store from "@/store";
 import { ReadingView } from "./ReadingView";
 import CountBar from "./CountBar.vue";
+import AudioPlayer from "@/component/AudioPlayer.vue";
 
 let vueThis = getCurrentInstance();
 let view = vueThis.appContext.config.globalProperties.view as ReadingView;
@@ -107,15 +114,17 @@ const themeConfig: GlobalThemeOverrides = {
     },
 };
 
-const localPrefix = require("electron").ipcRenderer.sendSync("file-url");
+// 音频源处理 - 保留原始路径，让 AudioPlayer 组件处理路径转换
 let frontMatter = plugin.app.metadataCache.getFileCache(view.file).frontmatter;
 let audioSource = (frontMatter["langr-audio"] || "") as string;
-if (audioSource && audioSource.startsWith("~/")) {
-    const prefix = Platform.isDesktopApp ? localPrefix : "http://localhost/_capacitor_file_";
-    audioSource =
-        prefix + plugin.constants.basePath + audioSource.slice(1);
-}else {
-    audioSource = audioSource.startsWith("http") ? audioSource : localPrefix + audioSource;
+
+// 音频事件处理
+function onAudioLoaded() {
+    console.log("Audio loaded successfully");
+}
+
+function onAudioError(error: ErrorEvent) {
+    console.error("Audio loading failed:", error);
 }
 
 // 记笔记
@@ -380,24 +389,24 @@ if (plugin.constants.platform === "mobile") {
         }
 
         span {
-            .new {
-                background-color: #add8e644;
+            .ignore {
+                background-color: var(--status-ignore-bg);
             }
 
             .learning {
-                background-color: #ff980055;
+                background-color: var(--status-learning-bg);
             }
 
             .familiar {
-                background-color: #ffeb3c55;
+                background-color: var(--status-familiar-bg);
             }
 
             .known {
-                background-color: #9eda5855;
+                background-color: var(--status-known-bg);
             }
 
             .learned {
-                background-color: #4cb05155;
+                background-color: var(--status-learned-bg);
             }
         }
 

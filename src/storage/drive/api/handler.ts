@@ -9,8 +9,6 @@ import {
     WordCount,
     WordsPhrase
 } from "@/storage/interface";
-
-import * as console from "console";
 import StorageDrive, {Paginate, PaginateResult, SortParams} from "@/storage/drive";
 
 

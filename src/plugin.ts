@@ -23,7 +23,7 @@ import {DATA_ICON, DATA_PANEL_VIEW, DataPanelView} from "./views/DataPanelView";
 import {t} from "./lang/helper";
 import {TextParser} from "./views/parser";
 import {FrontMatterManager} from "./utils/frontmatter";
-import Server from "./api/server";
+// import Server from "./api/server";
 
 import {DEFAULT_SETTINGS, MyPluginSettings, SettingTab} from "./settings";
 import store from "./store";
@@ -44,7 +44,7 @@ export default class LanguageLearner extends Plugin {
     appEl: HTMLElement;
     vueApp: VueApp;
     storage: StorageProvider;
-    server: Server;
+    // server: Server;
     parser: TextParser;
     markdownButtons: Record<string, HTMLElement> = {};
     frontManager: FrontMatterManager;
@@ -71,10 +71,10 @@ export default class LanguageLearner extends Plugin {
         this.frontManager = new FrontMatterManager(this.app);
 
         // 打开内置服务器
-        this.server = this.settings.self_server
-            ? new Server(this, this.settings.self_port)
-            : null;
-        await this.server?.start();
+        // this.server = this.settings.self_server
+        //     ? new Server(this, this.settings.self_port)
+        //     : null;
+        // await this.server?.start();
 
         // test
         // this.addCommand({
@@ -115,7 +115,7 @@ export default class LanguageLearner extends Plugin {
         this.app.workspace.detachLeavesOfType(READING_VIEW_TYPE);
 
         this.storage.destroyed();
-        this.server?.close();
+        // this.server?.close();
         // if (await app.vault.adapter.exists(".obsidian/plugins/obsidian-language-learner/pdf/web/viewer.html")) {
         //     this.registerExtensions([PDF_FILE_EXTENSION], "pdf");
         // }

@@ -1,6 +1,6 @@
 import Plugin from "@/plugin";
 import StorageDrive from "./drive";
-import { ApiStorageDrive } from './drive/api/handler';
+// import { ApiStorageDrive } from './drive/api/handler';
 import { IndexedStorageDrive } from './drive/Indexed/handler';
 import {Sqlite3StorageDrive} from "@/storage/drive/sqlite3/handle";
 
@@ -8,7 +8,6 @@ export class StorageProvider {
 
     private plugin: Plugin = null;
     private useConnect: StorageDrive = null;
-    private useConnectKey: string = null;
 
     public constructor(plugin: Plugin) {
         this.syncSetting(plugin)
@@ -30,7 +29,6 @@ export class StorageProvider {
 
         console.log(this.useConnect, drive, 'this.useConnect')
 
-        this.useConnectKey = drive;
         await this.useConnect.open();
 
         return this.useConnect;
@@ -56,12 +54,12 @@ export class StorageProvider {
     private register(drive: string): StorageDrive {
         switch (drive) {
             case StorageProviderDriveType.API:
-                return new ApiStorageDrive(
-                    this.plugin.settings.storage.drive["api"]["host"],
-                    this.plugin.settings.storage.drive["api"]["port"],
-                    this.plugin.settings.storage.drive["api"]["use_https"],
-                    this.plugin.settings.storage.drive["api"]["api_key"],
-                );
+                // return new ApiStorageDrive(
+                //     this.plugin.settings.storage.drive["api"]["host"],
+                //     this.plugin.settings.storage.drive["api"]["port"],
+                //     this.plugin.settings.storage.drive["api"]["use_https"],
+                //     this.plugin.settings.storage.drive["api"]["api_key"],
+                // );
             case StorageProviderDriveType.INDEXED:
                 return new IndexedStorageDrive(this.plugin);
             case StorageProviderDriveType.SQLITE:

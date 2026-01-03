@@ -1,6 +1,6 @@
 import {App, Notice, PluginSettingTab, Setting, debounce} from "obsidian";
 
-import Server from "./api/server";
+// import Server from "./api/server";
 import LanguageLearner from "./plugin";
 import {t} from "./lang/helper";
 import {WarningModal, OpenFileModal} from "./modals"
@@ -128,7 +128,7 @@ export class SettingTab extends PluginSettingTab {
         this.readingSettings(containerEl);
         this.completionSettings(containerEl);
         this.reviewSettings(containerEl);
-        this.selfServerSettings(containerEl);
+        // this.selfServerSettings(containerEl);
     }
 
     langSettings(containerEl: HTMLElement) {
@@ -312,76 +312,76 @@ export class SettingTab extends PluginSettingTab {
         }
 
 
-        if (this.plugin.settings.storage.storage_type === StorageProviderDriveType.API) {
-            new Setting(containerEl)
-                .setName(t("Use https"))
-                .setDesc(t("Be sure your server enabled https"))
-                .addToggle(toggle => toggle
-                    .setDisabled(this.plugin.settings.storage.drive["api"].use_server)
-                    .setValue(this.plugin.settings.storage.drive["api"].use_https)
-                    .onChange(async (use_https) => {
-                        this.plugin.settings.storage.drive["api"].use_https = use_https;
-                        this.plugin.storage.sync(this.plugin);
-                        await this.plugin.saveSettings();
-                        this.display();
-                    })
-                );
+        // if (this.plugin.settings.storage.storage_type === StorageProviderDriveType.API) {
+        //     new Setting(containerEl)
+        //         .setName(t("Use https"))
+        //         .setDesc(t("Be sure your server enabled https"))
+        //         .addToggle(toggle => toggle
+        //             .setDisabled(this.plugin.settings.storage.drive["api"].use_server)
+        //             .setValue(this.plugin.settings.storage.drive["api"].use_https)
+        //             .onChange(async (use_https) => {
+        //                 this.plugin.settings.storage.drive["api"].use_https = use_https;
+        //                 this.plugin.storage.sync(this.plugin);
+        //                 await this.plugin.saveSettings();
+        //                 this.display();
+        //             })
+        //         );
 
-            this.plugin.settings.storage.drive["api"].use_https && new Setting(containerEl)
-                .setName(t("Api Key"))
-                .setDesc(
-                    t("Input your api-key for authentication")
-                )
-                .addText((text) =>
-                    text
-                        .setValue(this.plugin.settings.storage.drive["api"].api_key)
-                        .setDisabled(this.plugin.settings.storage.drive["api"].use_server)
-                        .onChange(debounce(async (api_key) => {
-                            this.plugin.settings.storage.drive["api"].api_key = api_key;
-                            this.plugin.storage.sync(this.plugin);
-                            await this.plugin.saveSettings();
-                            this.display();
-                        }, 500, true))
-                );
+        //     this.plugin.settings.storage.drive["api"].use_https && new Setting(containerEl)
+        //         .setName(t("Api Key"))
+        //         .setDesc(
+        //             t("Input your api-key for authentication")
+        //         )
+        //         .addText((text) =>
+        //             text
+        //                 .setValue(this.plugin.settings.storage.drive["api"].api_key)
+        //                 .setDisabled(this.plugin.settings.storage.drive["api"].use_server)
+        //                 .onChange(debounce(async (api_key) => {
+        //                     this.plugin.settings.storage.drive["api"].api_key = api_key;
+        //                     this.plugin.storage.sync(this.plugin);
+        //                     await this.plugin.saveSettings();
+        //                     this.display();
+        //                 }, 500, true))
+        //         );
 
-            new Setting(containerEl)
-                .setName(t("Server Host"))
-                .setDesc(
-                    t("Your server's host name (like 11.11.11.11 or baidu.com)")
-                )
-                .addText((text) =>
-                    text
-                        .setValue(this.plugin.settings.storage.drive["api"].host)
-                        .setDisabled(this.plugin.settings.storage.drive["api"].use_server)
-                        .onChange(debounce(async (host) => {
-                            this.plugin.settings.storage.drive["api"].host = host;
-                            this.plugin.storage.sync(this.plugin);
-                            await this.plugin.saveSettings();
-                        }, 500, true))
-                );
+        //     new Setting(containerEl)
+        //         .setName(t("Server Host"))
+        //         .setDesc(
+        //             t("Your server's host name (like 11.11.11.11 or baidu.com)")
+        //         )
+        //         .addText((text) =>
+        //             text
+        //                 .setValue(this.plugin.settings.storage.drive["api"].host)
+        //                 .setDisabled(this.plugin.settings.storage.drive["api"].use_server)
+        //                 .onChange(debounce(async (host) => {
+        //                     this.plugin.settings.storage.drive["api"].host = host;
+        //                     this.plugin.storage.sync(this.plugin);
+        //                     await this.plugin.saveSettings();
+        //                 }, 500, true))
+        //         );
 
-            new Setting(containerEl)
-                .setName(t("Server Port"))
-                .setDesc(
-                    t('An integer between 1024-65535. It should be same as "PORT" variable in .env file of server')
-                )
-                .addText((text) =>
-                    text
-                        .setValue(String(this.plugin.settings.storage.drive["api"].port))
-                        .onChange(debounce(async (port) => {
-                            const p = Number(port);
-                            if (!isNaN(p) && p >= 1023 && p <= 65535) {
-                                this.plugin.settings.storage.drive["api"].port = p;
-                                this.plugin.storage.sync(this.plugin);
+        //     new Setting(containerEl)
+        //         .setName(t("Server Port"))
+        //         .setDesc(
+        //             t('An integer between 1024-65535. It should be same as "PORT" variable in .env file of server')
+        //         )
+        //         .addText((text) =>
+        //             text
+        //                 .setValue(String(this.plugin.settings.storage.drive["api"].port))
+        //                 .onChange(debounce(async (port) => {
+        //                     const p = Number(port);
+        //                     if (!isNaN(p) && p >= 1023 && p <= 65535) {
+        //                         this.plugin.settings.storage.drive["api"].port = p;
+        //                         this.plugin.storage.sync(this.plugin);
 
-                                await this.plugin.saveSettings();
-                            } else {
-                                new Notice(t("Wrong port format"));
-                            }
-                        }, 500, true))
-                );
+        //                         await this.plugin.saveSettings();
+        //                     } else {
+        //                         new Notice(t("Wrong port format"));
+        //                     }
+        //                 }, 500, true))
+        //         );
 
-        }
+        // }
 
 
         // 导入导出数据库
@@ -631,48 +631,48 @@ export class SettingTab extends PluginSettingTab {
             );
     }
 
-    selfServerSettings(containerEl: HTMLElement) {
-        containerEl.createEl("h3", {text: t("As Server")});
+    // selfServerSettings(containerEl: HTMLElement) {
+    //     containerEl.createEl("h3", {text: t("As Server")});
 
-        new Setting(containerEl)
-            .setName(t("Self as Server"))
-            .setDesc(t("Make plugin a server and interact with chrome extension"))
-            .addToggle(toggle => toggle
-                .setValue(this.plugin.settings.self_server)
-                .onChange(async (self_server) => {
-                    this.plugin.settings.self_server = self_server;
-                    if (self_server) {
-                        this.plugin.server = new Server(this.plugin, this.plugin.settings.self_port);
-                        await this.plugin.server.start();
-                    } else {
-                        await this.plugin.server?.close();
-                        this.plugin.server = null;
-                    }
-                    await this.plugin.saveSettings();
-                    this.display();
-                })
-            );
+    //     new Setting(containerEl)
+    //         .setName(t("Self as Server"))
+    //         .setDesc(t("Make plugin a server and interact with chrome extension"))
+    //         .addToggle(toggle => toggle
+    //             .setValue(this.plugin.settings.self_server)
+    //             .onChange(async (self_server) => {
+    //                 this.plugin.settings.self_server = self_server;
+    //                 if (self_server) {
+    //                     this.plugin.server = new Server(this.plugin, this.plugin.settings.self_port);
+    //                     await this.plugin.server.start();
+    //                 } else {
+    //                     await this.plugin.server?.close();
+    //                     this.plugin.server = null;
+    //                 }
+    //                 await this.plugin.saveSettings();
+    //                 this.display();
+    //             })
+    //         );
 
-        new Setting(containerEl)
-            .setName(t("Server Port"))
-            .setDesc(
-                t("when changing port, you should restart the server")
-            )
-            .addText((text) =>
-                text
-                    .setValue(String(this.plugin.settings.self_port))
-                    .onChange(debounce(async (port) => {
-                        const p = Number(port);
-                        if (!isNaN(p) && p >= 1023 && p <= 65535) {
-                            this.plugin.settings.self_port = p;
-                            await this.plugin.saveSettings();
-                        } else {
-                            new Notice(t("Wrong port format"));
-                        }
-                    }, 1000, true))
-            );
+    //     new Setting(containerEl)
+    //         .setName(t("Server Port"))
+    //         .setDesc(
+    //             t("when changing port, you should restart the server")
+    //         )
+    //         .addText((text) =>
+    //             text
+    //                 .setValue(String(this.plugin.settings.self_port))
+    //                 .onChange(debounce(async (port) => {
+    //                     const p = Number(port);
+    //                     if (!isNaN(p) && p >= 1023 && p <= 65535) {
+    //                         this.plugin.settings.self_port = p;
+    //                         await this.plugin.saveSettings();
+    //                     } else {
+    //                         new Notice(t("Wrong port format"));
+    //                     }
+    //                 }, 1000, true))
+    //         );
 
-    }
+    // }
 
 }
 
