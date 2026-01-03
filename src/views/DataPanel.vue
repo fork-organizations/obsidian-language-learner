@@ -6,7 +6,7 @@
                 <ActionButtons
                 :has-active-filters="hasActiveFilters"
                 @add-word="onAddWord"
-                @refresh="expressions"
+                @refresh="refresh"
                 @reset-filters="resetFilters"
                 @export="handleExport"
             />
@@ -352,6 +352,18 @@ function handlePageSizeChange(pageSize: number) {
     pagination.value.page = 1; // 重置到第一页
     savePrefs(); // 保存偏好
 }
+
+// 兼容文件同步后的数据库未重新打开读取数据问题
+const refresh = async () => { 
+    if (loading.value = true) {
+        return;
+    }
+
+    // 重新注册数据库
+    await plugin.storage.reRegister(plugin.settings.storage.storage_type);
+
+    await expressions();
+};
 
 const expressions = async () => {
     loading.value = true;
