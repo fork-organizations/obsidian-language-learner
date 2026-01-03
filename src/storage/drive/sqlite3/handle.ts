@@ -267,6 +267,15 @@ export class Sqlite3StorageDrive extends StorageDrive {
     }
 
     async open(): Promise<void> {
+        if (this.storageDrive) {
+            this.storageDrive?.close();
+            this.storageDrive = null;
+        }
+
+        if (this.sqlJs) {
+            this.sqlJs = null;
+        }
+
         await this.init();
     }
 
@@ -467,6 +476,12 @@ export class Sqlite3StorageDrive extends StorageDrive {
                     } else if (key === "t") {
                         whereConditions.push(`${key} = ?`);
                         whereParams.push(value);
+                    }
+                    // 支持标签搜索（数组：包含任意一个标签即可）
+                    else if (key === "tags" && Array.isArray(value) && value.length > 0) {
+                        const tagConditions = value.map(() => "EXISTS (SELECT 1 FROM " + Tables.TAGS + " WHERE " + Tables.TAGS + ".expression = " + Tables.EXPRESSION + ".expression AND tag = ?)");
+                        whereConditions.push(`(${tagConditions.join(" OR ")})`);
+                        whereParams.push(...value);
                     }
                 }
             }

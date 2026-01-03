@@ -31,7 +31,7 @@
             </div>
 
             <!-- 加载状态 -->
-            <div class="content-container">
+            <div class="content-container scroll-container" ref="scrollContainer">
                 <NSpin :show="loading">
                     <!-- 错误状态 -->
                     <div v-if="!loading && error" class="empty-state">
@@ -72,21 +72,24 @@
                     </div>
 
                     <WordCardList
-                        :data="paginatedData"
+                        :data="data"
                         @edit="handleEditWord"
                     />
 
-                    <!-- 分页 -->
-                    <div class="pagination-section">
-                        <NPagination
-                            v-model:page="pagination.page"
-                            :page-size="pagination.pageSize"
-                            :item-count="filteredData.length"
-                            show-size-picker
-                            :page-sizes="[15, 20, 30, 50]"
-                            @update:page="handlePageChange"
-                            @update:page-size="handlePageSizeChange"
-                        />
+                    <!-- 加载更多提示 -->
+                    <div v-if="!loading && hasMore && data.length > 0" class="load-more-section">
+                        <NSpin :show="loadingMore" size="small">
+                            <div class="load-more-text">
+                                {{ loadingMore ? t("Loading...") : t("Scroll down to load more") }}
+                            </div>
+                        </NSpin>
+                    </div>
+
+                    <!-- 没有更多数据提示 -->
+                    <div v-if="!loading && !hasMore && data.length > 0" class="no-more-section">
+                        <NText depth="3">
+                            {{ t("No more data") }}
+                        </NText>
                     </div>
                 </div>
             </NSpin>
@@ -106,11 +109,11 @@ import {
     watch,
     getCurrentInstance,
     onMounted,
+    onBeforeUnmount,
 } from "vue";
 import {
     NConfigProvider,
     NButton,
-    NPagination,
     NSpin,
     NEmpty,
     NText,
@@ -144,6 +147,11 @@ const themeConfig = computed<GlobalThemeOverrides>(() => ({
 const loading = ref(true);
 const error = ref<string | null>(null);
 const retryCount = ref(0);
+const scrollContainer = ref<HTMLElement | null>(null);
+const loadingMore = ref(false);
+const currentPage = ref(0);
+const pageSize = ref(20);
+const hasMore = ref(true); // 是否还有更多数据
 
 // 用户偏好设置的键名
 const PREFS_KEY = 'datapanel-prefs';
@@ -151,10 +159,6 @@ const PREFS_KEY = 'datapanel-prefs';
 // 保存用户偏好
 const savePrefs = () => {
     const prefs = {
-        pagination: {
-            pageSize: pagination.value.pageSize,
-            page: pagination.value.page
-        },
         sort: {
             field: sortParams.value.field,
             order: sortParams.value.order
@@ -175,12 +179,6 @@ const loadPrefs = () => {
         const saved = localStorage.getItem(PREFS_KEY);
         if (saved) {
             const prefs = JSON.parse(saved);
-            if (prefs.pagination?.pageSize) {
-                pagination.value.pageSize = prefs.pagination.pageSize;
-            }
-            if (prefs.pagination?.page) {
-                pagination.value.page = prefs.pagination.page;
-            }
             if (prefs.sort?.field && prefs.sort?.order) {
                 sortParams.value.field = prefs.sort.field;
                 sortParams.value.order = prefs.sort.order;
@@ -239,11 +237,6 @@ const typeOptions = [
     { label: "Phrase", value: "PHRASE" }
 ];
 
-const pagination = ref({
-    pageSize: 15,
-    page: 1,
-});
-
 // 搜索和筛选状态
 const searchParams = ref({
     expression: '',
@@ -298,7 +291,9 @@ const resetFilters = () => {
         field: 'date',
         order: 'desc'
     };
-    pagination.value.page = 1;
+    currentPage.value = 0;
+    data.value = [];
+    hasMore.value = true;
     expressions();
 }
 
@@ -314,7 +309,9 @@ const hasActiveFilters = computed(() => {
 
 // 搜索变化处理（防抖已在 SearchFilterPanel 中处理）
 const onSearchChange = () => {
-    pagination.value.page = 1; // 重置到第一页
+    currentPage.value = 0;
+    data.value = [];
+    hasMore.value = true;
     savePrefs(); // 保存偏好
     expressions();
 };
@@ -332,7 +329,9 @@ const handleSort = async (field: 'status' | 'date') => {
         sortParams.value.order = 'desc';
     }
 
-    pagination.value.page = 1;
+    currentPage.value = 0;
+    data.value = [];
+    hasMore.value = true;
     console.log('After sort:', sortParams.value);
 
     savePrefs(); // 保存偏好
@@ -341,23 +340,13 @@ const handleSort = async (field: 'status' | 'date') => {
     await expressions();
 };
 
-function handlePageChange(currentPage: number) {
-    console.log('[DataPanel] Page changed to:', currentPage);
-    pagination.value.page = currentPage;
-}
-
-function handlePageSizeChange(pageSize: number) {
-    console.log('[DataPanel] Page size changed to:', pageSize);
-    pagination.value.pageSize = pageSize;
-    pagination.value.page = 1; // 重置到第一页
-    savePrefs(); // 保存偏好
-}
-
 // 兼容文件同步后的数据库未重新打开读取数据问题
 const refresh = async () => { 
-    if (loading.value = true) {
+    if (loading.value) {
         return;
     }
+
+    loading.value = true
 
     // 重新注册数据库
     await plugin.storage.reRegister(plugin.settings.storage.storage_type);
@@ -366,13 +355,14 @@ const refresh = async () => {
 };
 
 const expressions = async () => {
-    loading.value = true;
+    // 如果是初始加载（currentPage为0），显示全局loading
+    const isInitialLoad = currentPage.value === 0;
+    if (isInitialLoad) {
+        loading.value = true;
+    }
     error.value = null;
 
     try {
-        // 将 page 从 1-based 转换为 0-based（后端使用 0-based）
-        const currentPage = pagination.value.page - 1;
-
         // 构建搜索参数
         const search: any = {};
         if (searchParams.value.expression) {
@@ -388,6 +378,12 @@ const expressions = async () => {
             search.t = searchParams.value.t;
         }
 
+        // 添加标签搜索（选中的标签）
+        const selectedTagsArray = selectedTags.value;
+        if (selectedTagsArray.length > 0) {
+            search.tags = selectedTagsArray;
+        }
+
         // 构建排序参数 - 映射字段名
         const sort: any = {};
         const fieldMapping: Record<string, string> = {
@@ -400,15 +396,21 @@ const expressions = async () => {
             sort[mappedField] = sortParams.value.order;
         }
 
+        // 传递真实的分页参数给后端
+        const paginate = {
+            page: currentPage.value,  // 当前页码（0-based）
+            pageSize: pageSize.value  // 每页大小
+        };
+
         let response = await plugin.storage.DB().getAllExpressionSimple(
             true,  // ignores
             sort,   // sort
-            Object.keys(search).length > 0 ? search : undefined,  // search
-            undefined  // 不传 paginate，获取所有数据
+            Object.keys(search).length > 0 ? search : undefined,  // search（包含标签）
+            paginate  // 传递分页参数
         );
 
-        // 显示所有数据（客户端分页）
-        data.value = response.data.map((entry: any): Row => {
+        // 处理数据
+        const newData = response.data.map((entry: any): Row => {
             let date = moment(entry.date);
 
             return {
@@ -423,6 +425,16 @@ const expressions = async () => {
             };
         });
 
+        // 如果是初始加载，替换所有数据；否则追加新数据
+        if (isInitialLoad) {
+            data.value = newData;
+        } else {
+            data.value = [...data.value, ...newData];
+        }
+
+        // 更新 hasMore 状态
+        hasMore.value = data.value.length < response.total;
+
         // 只在第一次加载时获取标签
         if (tags.value.length === 0) {
             tags.value = await plugin.storage.DB().getTags();
@@ -435,6 +447,7 @@ const expressions = async () => {
         new Notice(t("Failed to load data"));
     } finally {
         loading.value = false;
+        loadingMore.value = false;
     }
 }
 
@@ -526,6 +539,11 @@ const downloadFile = (content: string, filename: string, mimeType: string) => {
 onMounted(() => {
     loadPrefs(); // 加载用户偏好
     expressions();
+    setupInfiniteScroll();
+});
+
+onBeforeUnmount(() => {
+    cleanupInfiniteScroll();
 });
 
 let data = ref<Row[]>([]);
@@ -539,43 +557,87 @@ const selectedTags = computed(() => {
     return tags.value.filter((tag, i) => checkedTags.value[i]);
 });
 
-// 根据标签筛选数据
+// 根据标签筛选数据（现在用于显示筛选结果提示）
 const filteredData = computed(() => {
-    const currentSelectedTags = selectedTags.value;
-
-    // 如果没有选中标签，返回所有数据（快速路径）
-    if (currentSelectedTags.length === 0) {
-        return data.value;
-    }
-
-    const isAndMode = mode.value === "and";
-
-    // 根据模式筛选
-    return data.value.filter((item) => {
-        const itemTags = item.tags;
-
-        if (isAndMode) {
-            // AND 模式：必须包含所有选中的标签
-            return currentSelectedTags.every(tag => itemTags.includes(tag));
-        } else {
-            // OR 模式：包含任一选中的标签即可
-            return currentSelectedTags.some(tag => itemTags.includes(tag));
-        }
-    });
+    return data.value; // 标签筛选已移到后端，前端直接显示所有数据
 });
 
-// 监听标签变化，更新分页信息（优化：使用 selectedTags computed）
+// 监听标签变化，重新加载数据（从后端获取）
 watch([selectedTags, mode], () => {
     console.log('Tags filter changed:', selectedTags.value, 'Mode:', mode.value);
-    // 标签筛选改变时重置到第一页
-    pagination.value.page = 1;
+    // 标签筛选改变时重置并重新加载
+    currentPage.value = 0;
+    data.value = [];
+    hasMore.value = true;
+    expressions();
 }, { deep: true });
 
-// 客户端分页：从筛选结果中获取当前页的数据
-const paginatedData = computed(() => {
-    const start = (pagination.value.page - 1) * pagination.value.pageSize;
-    const end = start + pagination.value.pageSize;
-    return filteredData.value.slice(start, end);
+// 防抖函数
+const debounce = <T extends (...args: any[]) => any>(
+    func: T,
+    wait: number
+): ((...args: Parameters<T>) => void) => {
+    let timeout: NodeJS.Timeout | null = null;
+    return (...args: Parameters<T>) => {
+        if (timeout) clearTimeout(timeout);
+        timeout = setTimeout(() => func(...args), wait);
+    };
+};
+
+// 检查是否滚动到底部
+const checkScrollBottom = () => {
+    if (!scrollContainer.value) return;
+
+    const container = scrollContainer.value;
+    const scrollTop = container.scrollTop;
+    const scrollHeight = container.scrollHeight;
+    const clientHeight = container.clientHeight;
+
+    // 当滚动到距离底部 200px 时触发加载
+    const distanceToBottom = scrollHeight - scrollTop - clientHeight;
+
+    if (distanceToBottom < 200 && !loadingMore.value && !loading.value && hasMore.value) {
+        loadMore();
+    }
+};
+
+// 防抖版本的滚动检查
+const debouncedCheckScroll = debounce(checkScrollBottom, 100);
+
+// 加载更多数据（调用后端获取下一页）
+const loadMore = async () => {
+    if (loadingMore.value || loading.value || !hasMore.value) return;
+
+    loadingMore.value = true;
+    currentPage.value++;
+
+    try {
+        await expressions();
+    } catch (err) {
+        console.error("Failed to load more:", err);
+        currentPage.value--; // 回退页码
+    }
+};
+
+// 设置无限滚动
+const setupInfiniteScroll = () => {
+    if (scrollContainer.value) {
+        scrollContainer.value.addEventListener('scroll', debouncedCheckScroll);
+    }
+};
+
+// 清理无限滚动
+const cleanupInfiniteScroll = () => {
+    if (scrollContainer.value) {
+        scrollContainer.value.removeEventListener('scroll', debouncedCheckScroll);
+    }
+};
+
+// 监听 scrollContainer 变化，重新设置滚动监听
+watch(scrollContainer, (newContainer) => {
+    if (newContainer) {
+        setupInfiniteScroll();
+    }
 });
 </script>
 
@@ -591,6 +653,13 @@ const paginatedData = computed(() => {
     // 内容容器
     .content-container {
         min-height: 400px;
+        max-height: calc(100vh - 350px);
+        overflow-y: auto;
+    }
+
+    // 滚动容器
+    .scroll-container {
+        position: relative;
     }
 
     // 自定义空状态样式
@@ -638,11 +707,29 @@ const paginatedData = computed(() => {
         }
     }
 
-    .pagination-section {
-        margin-top: 20px;
+    // 加载更多部分
+    .load-more-section {
         display: flex;
         justify-content: center;
-        padding: 16px 0;
+        align-items: center;
+        padding: 20px;
+        margin-top: 16px;
+
+        .load-more-text {
+            font-size: 14px;
+            color: var(--n-text-color-2);
+            text-align: center;
+        }
+    }
+
+    // 没有更多数据
+    .no-more-section {
+        display: flex;
+        justify-content: center;
+        padding: 20px;
+        margin-top: 16px;
+        font-size: 14px;
+        color: var(--n-text-color-3);
     }
 }
 </style>
